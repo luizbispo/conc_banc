@@ -61,6 +61,7 @@ class PDFReport(FPDF):
             pass
         
         return text
+    
 def gerar_relatorio_analise(resultados_analise: Dict,
                           extrato_df: pd.DataFrame,
                           contabil_df: pd.DataFrame,
@@ -73,10 +74,11 @@ def gerar_relatorio_analise(resultados_analise: Dict,
                           **kwargs) -> str:
     """
     Gera relatório de análise (não de conciliação)
+    formato: 'completo' ou 'resumido'
     """
     pdf = PDFReport()
     
-    # Página 1: Capa
+    # Página 1: Capa (comum para ambos os formatos)
     pdf.add_page()
     pdf.set_font('Arial', 'B', 20)
     pdf.cell(0, 40, 'RELATÓRIO DE ANÁLISE DE CORRESPONDÊNCIAS', 0, 1, 'C')
@@ -86,10 +88,11 @@ def gerar_relatorio_analise(resultados_analise: Dict,
     pdf.cell(0, 10, f'Período: {periodo}', 0, 1, 'C')
     pdf.cell(0, 10, f'Analista: {pdf.clean_text(contador_nome)}', 0, 1, 'C')
     pdf.cell(0, 10, f'Data de geração: {datetime.now().strftime("%d/%m/%Y")}', 0, 1, 'C')
+    pdf.cell(0, 10, f'Formato: {formato.upper()}', 0, 1, 'C')
     
     pdf.ln(20)
     
-    # Sumário Executivo
+    # Sumário Executivo (comum para ambos os formatos)
     pdf.chapter_title('RELATÓRIO DE ANÁLISE - CORRESPONDÊNCIAS IDENTIFICADAS')
     
     total_matches = len(resultados_analise['matches'])
@@ -120,13 +123,13 @@ def gerar_relatorio_analise(resultados_analise: Dict,
     OBSERVAÇÕES:
     {observacoes if observacoes else 'Nenhuma observação adicional'}
     
-    ATENÇÃO: Este relatório apresenta CORRESPONDÊNCIAS IDENTIFICADAS
-    que devem ser validadas manualmente pelo contador antes da conciliação final.
+    ATENÇÃO: Este relatório apresenta CORRESPONDÊNCIAS IDENTIFICADAS que devem ser validadas 
+    manualmente pelo contador antes da conciliação final.
     """
     
     pdf.chapter_body(resumo_texto)
     
-    # Página 2: Estatísticas Detalhadas
+    # Página 2: Estatísticas (comum para ambos os formatos)
     pdf.add_page()
     pdf.chapter_title('ESTATÍSTICAS DETALHADAS')
     
@@ -166,61 +169,100 @@ def gerar_relatorio_analise(resultados_analise: Dict,
     
     pdf.chapter_body(estatisticas_texto)
     
-    # Página 3: Correspondências Identificadas
-    if resultados_analise['matches']:
-        pdf.add_page()
-        pdf.chapter_title('CORRESPONDÊNCIAS IDENTIFICADAS')
-        
-        headers = ['ID', 'Tipo', 'Camada', 'Confiança', 'Valor Total', 'Trans Bank', 'Lanc Cont']
-        col_widths = [10, 20, 25, 20, 30, 20, 20]
-        
-        pdf.set_font('Arial', 'B', 8)
-        for i, header in enumerate(headers):
-            pdf.cell(col_widths[i], 8, header, 1, 0, 'C')
-        pdf.ln()
-        
-        pdf.set_font('Arial', '', 7)
-        for i, match in enumerate(resultados_analise['matches']):
-            pdf.cell(col_widths[0], 6, str(i + 1), 1, 0, 'C')
-            pdf.cell(col_widths[1], 6, match['tipo_match'], 1, 0, 'C')
-            pdf.cell(col_widths[2], 6, match['camada'], 1, 0, 'C')
-            pdf.cell(col_widths[3], 6, f"{match['confianca']}%", 1, 0, 'C')
-            pdf.cell(col_widths[4], 6, f"R$ {match['valor_total']:.2f}", 1, 0, 'C')
-            pdf.cell(col_widths[5], 6, str(len(match['ids_extrato'])), 1, 0, 'C')
-            pdf.cell(col_widths[6], 6, str(len(match['ids_contabil'])), 1, 0, 'C')
+    # CONTEÚDO ESPECÍFICO PARA RELATÓRIO COMPLETO
+    if formato == 'completo':
+        # Página 3: Correspondências Identificadas (apenas no completo)
+        if resultados_analise['matches']:
+            pdf.add_page()
+            pdf.chapter_title('CORRESPONDÊNCIAS IDENTIFICADAS - DETALHES COMPLETOS')
+            
+            headers = ['ID', 'Tipo', 'Camada', 'Confiança', 'Valor Total', 'Trans Bank', 'Lanc Cont']
+            col_widths = [10, 20, 25, 20, 30, 20, 20]
+            
+            pdf.set_font('Arial', 'B', 8)
+            for i, header in enumerate(headers):
+                pdf.cell(col_widths[i], 8, header, 1, 0, 'C')
             pdf.ln()
-        
-        pdf.ln(10)
-        pdf.chapter_title('PRINCIPAIS CORRESPONDÊNCIAS - DETALHES')
-        
-        for i, match in enumerate(resultados_analise['matches'][:10]):
-            pdf.set_font('Arial', 'B', 9)
-            pdf.cell(0, 8, f'Correspondência {i + 1}: {match["tipo_match"]} - {match["camada"]}', 0, 1)
-            pdf.set_font('Arial', '', 8)
-            pdf.multi_cell(0, 4, f'Justificativa: {pdf.clean_text(match["explicacao"])}')
-            pdf.multi_cell(0, 4, f'Valor: R$ {match["valor_total"]:.2f} | Confiança: {match["confianca"]}%')
             
-            transacoes_extrato = extrato_df[extrato_df['id'].isin(match['ids_extrato'])]
-            transacoes_contabil = contabil_df[contabil_df['id'].isin(match['ids_contabil'])]
+            pdf.set_font('Arial', '', 7)
+            for i, match in enumerate(resultados_analise['matches']):
+                pdf.cell(col_widths[0], 6, str(i + 1), 1, 0, 'C')
+                pdf.cell(col_widths[1], 6, match['tipo_match'], 1, 0, 'C')
+                pdf.cell(col_widths[2], 6, match['camada'], 1, 0, 'C')
+                pdf.cell(col_widths[3], 6, f"{match['confianca']}%", 1, 0, 'C')
+                pdf.cell(col_widths[4], 6, f"R$ {match['valor_total']:.2f}", 1, 0, 'C')
+                pdf.cell(col_widths[5], 6, str(len(match['ids_extrato'])), 1, 0, 'C')
+                pdf.cell(col_widths[6], 6, str(len(match['ids_contabil'])), 1, 0, 'C')
+                pdf.ln()
             
-            pdf.multi_cell(0, 4, f'Transações bancárias: {len(transacoes_extrato)}')
-            for _, trans in transacoes_extrato.iterrows():
-                data_str = trans['data'].strftime('%d/%m') if hasattr(trans['data'], 'strftime') else str(trans['data'])
-                valor_original = trans.get('valor_original', trans['valor'])
-                pdf.multi_cell(0, 3, f'  - R$ {valor_original:,.2f} | {data_str} | {pdf.clean_text(trans["descricao"][:30])}')
+            pdf.ln(10)
+            pdf.chapter_title('PRINCIPAIS CORRESPONDÊNCIAS - DETALHES')
             
-            pdf.multi_cell(0, 4, f'Lançamentos contábeis: {len(transacoes_contabil)}')
-            for _, lanc in transacoes_contabil.iterrows():
-                data_str = lanc['data'].strftime('%d/%m') if hasattr(lanc['data'], 'strftime') else str(lanc['data'])
-                valor_original = lanc.get('valor_original', lanc['valor'])
-                pdf.multi_cell(0, 3, f'  - R$ {valor_original:,.2f} | {data_str} | {pdf.clean_text(lanc["descricao"][:30])}')
-            
-            pdf.ln(5)
+            for i, match in enumerate(resultados_analise['matches'][:10]):  # Limitar a 10 no completo
+                pdf.set_font('Arial', 'B', 9)
+                pdf.cell(0, 8, f'Correspondência {i + 1}: {match["tipo_match"]} - {match["camada"]}', 0, 1)
+                pdf.set_font('Arial', '', 8)
+                pdf.multi_cell(0, 4, f'Justificativa: {pdf.clean_text(match["explicacao"])}')
+                pdf.multi_cell(0, 4, f'Valor: R$ {match["valor_total"]:.2f} | Confiança: {match["confianca"]}%')
+                
+                transacoes_extrato = extrato_df[extrato_df['id'].isin(match['ids_extrato'])]
+                transacoes_contabil = contabil_df[contabil_df['id'].isin(match['ids_contabil'])]
+                
+                pdf.multi_cell(0, 4, f'Transações bancárias: {len(transacoes_extrato)}')
+                for _, trans in transacoes_extrato.iterrows():
+                    data_str = trans['data'].strftime('%d/%m') if hasattr(trans['data'], 'strftime') else str(trans['data'])
+                    valor_original = trans.get('valor_original', trans['valor'])
+                    pdf.multi_cell(0, 3, f'  - R$ {valor_original:,.2f} | {data_str} | {pdf.clean_text(trans["descricao"][:30])}')
+                
+                pdf.multi_cell(0, 4, f'Lançamentos contábeis: {len(transacoes_contabil)}')
+                for _, lanc in transacoes_contabil.iterrows():
+                    data_str = lanc['data'].strftime('%d/%m') if hasattr(lanc['data'], 'strftime') else str(lanc['data'])
+                    valor_original = lanc.get('valor_original', lanc['valor'])
+                    pdf.multi_cell(0, 3, f'  - R$ {valor_original:,.2f} | {data_str} | {pdf.clean_text(lanc["descricao"][:30])}')
+                
+                pdf.ln(5)
     
-    # Página 4: Divergências
+    else:  # RELATÓRIO RESUMIDO
+        # Página 3: Correspondências Resumidas
+        if resultados_analise['matches']:
+            pdf.add_page()
+            pdf.chapter_title('CORRESPONDÊNCIAS IDENTIFICADAS - VISÃO RESUMIDA')
+            
+            pdf.set_font('Arial', '', 9)
+            pdf.multi_cell(0, 5, f'Total de correspondências identificadas: {len(resultados_analise["matches"])}')
+            
+            # Apenas estatísticas resumidas no relatório resumido
+            tipos_match = {
+                '1:1': len([m for m in resultados_analise['matches'] if m['tipo_match'] == '1:1']),
+                '1:N': len([m for m in resultados_analise['matches'] if m['tipo_match'] == '1:N']),
+                'N:1': len([m for m in resultados_analise['matches'] if m['tipo_match'] == 'N:1'])
+            }
+            
+            pdf.multi_cell(0, 5, f'Distribuição: 1:1 ({tipos_match["1:1"]}), 1:N ({tipos_match["1:N"]}), N:1 ({tipos_match["N:1"]})')
+            
+            # Apenas as 3 principais correspondências por confiança
+            matches_ordenados = sorted(resultados_analise['matches'], key=lambda x: x['confianca'], reverse=True)[:3]
+            
+            if matches_ordenados:
+                pdf.ln(5)
+                pdf.set_font('Arial', 'B', 10)
+                pdf.cell(0, 8, 'PRINCIPAIS CORRESPONDÊNCIAS (TOP 3):', 0, 1)
+                
+                for i, match in enumerate(matches_ordenados):
+                    pdf.set_font('Arial', 'B', 9)
+                    pdf.cell(0, 6, f'{i+1}. {match["tipo_match"]} - Confiança: {match["confianca"]}% - Valor: R$ {match["valor_total"]:.2f}', 0, 1)
+                    pdf.set_font('Arial', '', 8)
+                    pdf.multi_cell(0, 4, f'   {pdf.clean_text(match["explicacao"][:100])}...')
+                    pdf.ln(2)
+    
+    # Página de Divergências (comum mas com detalhamento diferente)
     if resultados_analise.get('excecoes'):
         pdf.add_page()
-        pdf.chapter_title('DIVERGÊNCIAS IDENTIFICADAS')
+        
+        if formato == 'completo':
+            pdf.chapter_title('DIVERGÊNCIAS IDENTIFICADAS - ANÁLISE COMPLETA')
+        else:
+            pdf.chapter_title('DIVERGÊNCIAS IDENTIFICADAS - RESUMO')
         
         for i, excecao in enumerate(resultados_analise['excecoes']):
             pdf.set_font('Arial', 'B', 10)
@@ -231,37 +273,33 @@ def gerar_relatorio_analise(resultados_analise: Dict,
             pdf.multi_cell(0, 5, f'Itens envolvidos: {len(excecao["ids_envolvidos"])}')
             pdf.ln(5)
     
-    # Página 5: Tabela de Divergências Detalhadas
-    if divergencias_tabela is not None and not divergencias_tabela.empty:
+    # Tabela de Divergências Detalhadas (APENAS NO COMPLETO)
+    if formato == 'completo' and divergencias_tabela is not None and not divergencias_tabela.empty:
         try:
             pdf.add_page()
             pdf.chapter_title('TABELA DETALHADA DE DIVERGÊNCIAS')
             
             headers = ['Tipo', 'Severidade', 'Data', 'Descrição', 'Valor', 'Origem']
-            col_widths = [15, 20, 20, 60, 25, 20]  # Aumentei a largura da descrição
+            col_widths = [15, 20, 20, 60, 25, 20]
             
             pdf.set_font('Arial', 'B', 8)
             for i, header in enumerate(headers):
                 pdf.cell(col_widths[i], 8, header, 1, 0, 'C')
             pdf.ln()
             
-            # Função auxiliar para abreviar tipos
             def abreviar_tipo_divergencia(tipo_original):
-                """Abrevia tipos longos de divergência para melhor visualização na tabela"""
                 abreviacoes = {
                     'TRANSAÇÃO_SEM_CORRESPONDÊNCIA': 'TSC',
                     'LANÇAMENTO_SEM_CORRESPONDÊNCIA': 'LSC',
-                    'TRANSAÇÃO_SEM_CORRESPONDENCIA': 'TSC',  # Fallback sem acento
-                    'LANÇAMENTO_SEM_CORRESPONDENCIA': 'LSC'  # Fallback sem acento
+                    'TRANSAÇÃO_SEM_CORRESPONDENCIA': 'TSC',
+                    'LANÇAMENTO_SEM_CORRESPONDENCIA': 'LSC'
                 }
                 return abreviacoes.get(tipo_original, tipo_original)
             
             pdf.set_font('Arial', '', 7)
             for _, row in divergencias_tabela.iterrows():
-                # Truncar descrição se for muito longa
                 descricao = str(row.get('Descrição', row.get('descricao', '')))[:50] + "..." if len(str(row.get('Descrição', row.get('descricao', '')))) > 50 else str(row.get('Descrição', row.get('descricao', '')))
                 
-                # Obter valores com fallbacks e ABREVIAR tipos longos
                 tipo_original = str(row.get('Tipo_Divergência', row.get('Tipo', '')))
                 tipo = abreviar_tipo_divergencia(tipo_original)
                 
@@ -282,42 +320,54 @@ def gerar_relatorio_analise(resultados_analise: Dict,
             pdf.set_font('Arial', 'I', 8)
             pdf.cell(0, 6, f'Total de divergências detalhadas: {len(divergencias_tabela)}', 0, 1)
             
-            # LEGENDA DAS ABREVIAÇÕES
-            pdf.ln(2)
-            pdf.set_font('Arial', 'B', 8)
-            pdf.cell(0, 6, 'LEGENDA DAS ABREVIAÇÕES:', 0, 1)
-            pdf.set_font('Arial', '', 7)
-            pdf.multi_cell(0, 4, 'TSC = Transação Sem Correspondência | LSC = Lançamento Sem Correspondência')
-            
         except Exception as e:
             print(f"⚠️ Aviso: Não foi possível adicionar tabela de divergências: {e}")
     
-    # Página final: Recomendações
+    # Página final: Recomendações (comum para ambos)
     pdf.add_page()
     pdf.chapter_title('RECOMENDAÇÕES E PRÓXIMOS PASSOS')
     
-    recomendacoes_texto = """
-    RECOMENDAÇÕES PARA CONCILIAÇÃO MANUAL:
+    if formato == 'completo':
+        recomendacoes_texto = """
+        RECOMENDAÇÕES PARA CONCILIAÇÃO MANUAL:
+        
+        1. VALIDAR CORRESPONDÊNCIAS IDENTIFICADAS
+           - Confirmar cada correspondência proposta
+           - Verificar se as relações fazem sentido comercial
+           - Validar valores e datas
+        
+        2. INVESTIGAR DIVERGÊNCIAS
+           - Analisar transações sem correspondência (TSC)
+           - Verificar lançamentos sem movimento bancário (LSC)
+           - Identificar possíveis erros de lançamento
+        
+        3. AJUSTES NECESSÁRIOS
+           - Corrigir lançamentos incorretos
+           - Incluir transações omitidas
+           - Ajustar classificações contábeis
+        
+        4. DOCUMENTAÇÃO
+           - Manter registro das validações realizadas
+           - Documentar ajustes feitos
+           - Arquivar este relatório de análise
+        """
+    else:
+        recomendacoes_texto = """
+        PRÓXIMOS PASSOS RECOMENDADOS:
+        
+        • Validar correspondências identificadas
+        • Investigar divergências críticas
+        • Ajustar lançamentos conforme necessário
+        • Documentar processo de conciliação
+        
+        PARA ANÁLISE DETALHADA:
+        Consulte o relatório completo para:
+        - Tabelas detalhadas de correspondências
+        - Análise completa de divergências
+        - Detalhes técnicos da análise
+        """
     
-    1. VALIDAR CORRESPONDÊNCIAS IDENTIFICADAS
-       - Confirmar cada correspondência proposta
-       - Verificar se as relações fazem sentido comercial
-       - Validar valores e datas
-    
-    2. INVESTIGAR DIVERGÊNCIAS
-       - Analisar transações sem correspondência (TSC)
-       - Verificar lançamentos sem movimento bancário (LSC)
-       - Identificar possíveis erros de lançamento
-    
-    3. AJUSTES NECESSÁRIOS
-       - Corrigir lançamentos incorretos
-       - Incluir transações omitidas
-       - Ajustar classificações contábeis
-    
-    4. DOCUMENTAÇÃO
-       - Manter registro das validações realizadas
-       - Documentar ajustes feitos
-       - Arquivar este relatório de análise
+    recomendacoes_texto += """
     
     OBSERVAÇÕES IMPORTANTES:
     - Este relatório é uma FERRAMENTA DE AUXÍLIO
@@ -327,6 +377,7 @@ def gerar_relatorio_analise(resultados_analise: Dict,
     """
     
     pdf.chapter_body(recomendacoes_texto)
+    pdf.add_page()
     
     # Assinatura
     pdf.ln(15)
@@ -337,7 +388,7 @@ def gerar_relatorio_analise(resultados_analise: Dict,
     
     # Salvar PDF
     temp_dir = tempfile.gettempdir()
-    pdf_path = os.path.join(temp_dir, f'relatorio_analise_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
+    pdf_path = os.path.join(temp_dir, f'relatorio_analise_{formato}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
     
     try:
         pdf.output(pdf_path)

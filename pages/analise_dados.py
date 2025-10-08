@@ -32,13 +32,16 @@ with st.expander(" Guia de Análise"):
      
     ## O que a análise faz: 
      
-    1. **Correspondências Exatas** - Mesmo valor + mesma data 
+    1. **Correspondências Exatas**
+        - Mesmo valor + mesma data 
         - Identificadores únicos (PIX, NSU, etc.) 
      
-    2. **Correspondências por Similaridade** - Valores próximos + datas próximas 
+    2. **Correspondências por Similaridade** 
+        - Valores próximos + datas próximas 
         - Descrições semelhantes 
      
-    3. **Análise de Padrões Complexos** - Parcelamentos (1 transação → N lançamentos) 
+    3. **Análise de Padrões Complexos** 
+        - Parcelamentos (1 transação → N lançamentos) 
         - Consolidações (N transações → 1 lançamento) 
      
     ## Resultados Esperados: 

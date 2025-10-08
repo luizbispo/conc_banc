@@ -60,7 +60,7 @@ with col3:
 with st.sidebar:
     st.header("ℹ️ Sobre o Sistema")
     st.markdown("""
-    **Versão:** 2.0.0      
+    **Versão:** 2.1.0      
     **Desenvolvido para:** Empresas e contadores  
     **Desenvolvido por:** Luiz Bispo (X-Testing)
                 

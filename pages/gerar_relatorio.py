@@ -309,16 +309,38 @@ with col_gerar1:
     
     formato_relatorio = st.selectbox(
         "Formato do Relatório",
-        ["Completo", "Executivo", "Resumido"]
+        ["Completo", "Resumido"],
+        help="Completo: Inclui todos os detalhes e tabelas completas | Resumido: Apenas sumário executivo e estatísticas principais"
     )
+    
+    # Mostrar diferenças entre os formatos
+    with st.expander("📋 Diferenças entre os Formatos"):
+        st.markdown("""
+        **📄 Relatório COMPLETO:**
+        - Capa e sumário executivo
+        - Estatísticas detalhadas
+        - Tabela completa de correspondências
+        - Detalhes das principais correspondências
+        - Análise completa de divergências
+        - Tabela detalhada de divergências
+        - Recomendações e próximos passos
+        - Assinatura do contador
+        
+        **📊 Relatório RESUMIDO:**
+        - Capa e sumário executivo
+        - Estatísticas principais apenas
+        - Lista resumida de correspondências
+        - Resumo das divergências críticas
+        - Recomendações principais
+        """)
 
 with col_gerar2:
     st.subheader("Gerar PDF")
     
-    if st.button(" Gerar Relatório de Análise", type="primary", width='stretch', key="btn_gerar_relatorio_analise"):
+    if st.button("🔄 Gerar Relatório de Análise", type="primary", width='stretch', key="btn_gerar_relatorio_analise"):
         with st.spinner("Gerando relatório PDF..."):
             try:
-                # CORREÇÃO: Obter a tabela de divergências se existir
+                # Obter a tabela de divergências se existir
                 divergencias_tabela = None
                 if 'divergencias_tabela' in st.session_state:
                     divergencias_tabela = st.session_state['divergencias_tabela']
@@ -326,7 +348,7 @@ with col_gerar2:
                 else:
                     st.info("ℹ️ Gerando relatório sem tabela de divergências detalhada")
                 
-                # CORREÇÃO: Usar a função correta com todos os parâmetros
+                # Usar a função correta com todos os parâmetros
                 pdf_path = report_gen.gerar_relatorio_analise(
                     resultados_analise=resultados_analise,
                     extrato_df=extrato_filtrado,
@@ -360,10 +382,11 @@ with col_gerar2:
                 
                 # Criar download link
                 b64_pdf = base64.b64encode(pdf_bytes).decode()
-                href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="relatorio_analise_{datetime.now().strftime("%Y%m%d_%H%M")}.pdf" style="background-color: #4CAF50; color: white; padding: 14px 20px; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; font-size: 16px;">📥 Baixar Relatório de Análise</a>'
+                nome_arquivo = f"relatorio_{formato_relatorio.lower()}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+                href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{nome_arquivo}" style="background-color: #4CAF50; color: white; padding: 14px 20px; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; font-size: 16px;">📥 Baixar Relatório {formato_relatorio}</a>'
                 
                 st.markdown(href, unsafe_allow_html=True)
-                st.success("✅ Relatório gerado com sucesso!")
+                st.success(f"✅ Relatório {formato_relatorio} gerado com sucesso!")
                 
                 # Pré-visualização embutida
                 st.subheader("👁️ Pré-visualização do PDF")
