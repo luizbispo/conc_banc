@@ -14,41 +14,34 @@ class PDFReport(FPDF):
         self.add_page()
         
     def header(self):
-        # Cabeçalho do relatório
         self.set_font('Arial', 'B', 16)
-        self.cell(0, 10, 'RELATORIO DE CONCILIACAO BANCARIA', 0, 1, 'C')
+        self.cell(0, 40, 'RELATÓRIO DE CONCILIAÇÃO BANCÁRIA', 0, 1, 'C')
         self.set_font('Arial', 'I', 10)
         self.cell(0, 5, f'Gerado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}', 0, 1, 'C')
         self.ln(5)
     
     def footer(self):
-        # Rodapé do relatório
         self.set_y(-15)
         self.set_font('Arial', 'I', 8)
-        self.cell(0, 10, f'Pagina {self.page_no()}', 0, 0, 'C')
+        self.cell(0, 10, f'Página {self.page_no()}', 0, 0, 'C')
     
     def chapter_title(self, title):
-        # Título de capítulo
         self.set_font('Arial', 'B', 14)
         self.cell(0, 10, self.clean_text(title), 0, 1, 'L')
         self.ln(2)
-    
+
     def chapter_body(self, body):
-        # Corpo do texto
         self.set_font('Arial', '', 10)
         cleaned_body = self.clean_text(body)
         self.multi_cell(0, 6, cleaned_body)
         self.ln()
     
     def clean_text(self, text):
-        """Remove TODOS os caracteres especiais e Unicode"""
         if not text:
             return ""
         
-        # Substituir TODOS os caracteres problemáticos
         text = str(text)
         
-        # Remover ou substituir caracteres Unicode específicos
         replacements = {
             '✅': '[OK]', '✔': '[OK]', '✓': '[OK]', '☑': '[OK]',
             '❌': '[ERRO]', '✖': '[ERRO]', '❎': '[ERRO]',
@@ -57,128 +50,137 @@ class PDFReport(FPDF):
             '💡': '[DICA]', '🚀': '[RAPIDO]', '⭐': '[DESTAQUE]',
             '•': '-', '·': '-', '–': '-', '—': '-', '‣': '-', '⁃': '-',
             '“': '"', '”': '"', '‘': "'", '’': "'", '´': "'", '`': "'",
-            'á': 'a', 'à': 'a', 'ã': 'a', 'â': 'a', 'ä': 'a',
-            'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
-            'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
-            'ó': 'o', 'ò': 'o', 'õ': 'o', 'ô': 'o', 'ö': 'o',
-            'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
-            'ç': 'c', 'ñ': 'n',
-            'Á': 'A', 'À': 'A', 'Ã': 'A', 'Â': 'A', 'Ä': 'A',
-            'É': 'E', 'È': 'E', 'Ê': 'E', 'Ë': 'E',
-            'Í': 'I', 'Ì': 'I', 'Î': 'I', 'Ï': 'I',
-            'Ó': 'O', 'Ò': 'O', 'Õ': 'O', 'Ô': 'O', 'Ö': 'O',
-            'Ú': 'U', 'Ù': 'U', 'Û': 'U', 'Ü': 'U',
-            'Ç': 'C', 'Ñ': 'N'
         }
         
-        # Aplicar substituições
         for old_char, new_char in replacements.items():
             text = text.replace(old_char, new_char)
         
-        # Remover qualquer outro caractere não-ASCII
-        text = text.encode('ascii', 'ignore').decode('ascii')
+        try:
+            text = text.encode('latin-1', 'replace').decode('latin-1')
+        except:
+            pass
         
         return text
-    
-    def add_table(self, data, headers):
-        # Adicionar tabela simples
-        self.set_font('Arial', 'B', 10)
-        
-        # Larguras das colunas ajustadas
-        col_widths = [15, 20, 25, 25, 30, 25, 25]
-        
-        # Cabeçalho
-        for i, header in enumerate(headers):
-            self.cell(col_widths[i], 10, self.clean_text(header), 1, 0, 'C')
-        self.ln()
-        
-        # Dados
-        self.set_font('Arial', '', 8)
-        for row in data:
-            for i, item in enumerate(row):
-                self.cell(col_widths[i], 8, self.clean_text(str(item)), 1, 0, 'C')
-            self.ln()
-
-def gerar_relatorio_completo(matches_aprovados: List[Dict],
-                           matches_rejeitados: List[Dict],
-                           excecoes: List[Dict],
-                           extrato_df: pd.DataFrame,
-                           contabil_df: pd.DataFrame,
-                           empresa_nome: str = "Empresa",
-                           contador_nome: str = "Contador",
-                           periodo: str = "",
-                           observacoes: str = "",
-                           formato: str = "completo") -> str:
+def gerar_relatorio_analise(resultados_analise: Dict,
+                          extrato_df: pd.DataFrame,
+                          contabil_df: pd.DataFrame,
+                          empresa_nome: str = "Empresa",
+                          contador_nome: str = "Contador",
+                          periodo: str = "",
+                          observacoes: str = "",
+                          formato: str = "completo",
+                          divergencias_tabela: pd.DataFrame = None,
+                          **kwargs) -> str:
     """
-    Gera relatório PDF completo da conciliação
+    Gera relatório de análise (não de conciliação)
     """
-    
     pdf = PDFReport()
     
-    # Página 1: Capa e Sumário Executivo
+    # Página 1: Capa
     pdf.add_page()
-    
-    # Capa
     pdf.set_font('Arial', 'B', 20)
-    pdf.cell(0, 40, 'RELATORIO DE CONCILIACAO - COMPLETO', 0, 1, 'C')
+    pdf.cell(0, 40, 'RELATÓRIO DE ANÁLISE DE CORRESPONDÊNCIAS', 0, 1, 'C')
     pdf.set_font('Arial', 'B', 16)
     pdf.cell(0, 20, pdf.clean_text(empresa_nome), 0, 1, 'C')
     pdf.set_font('Arial', '', 12)
-    pdf.cell(0, 10, f'Periodo: {periodo}', 0, 1, 'C')
-    pdf.cell(0, 10, f'Responsavel: {pdf.clean_text(contador_nome)}', 0, 1, 'C')
-    pdf.cell(0, 10, f'Data de geracao: {datetime.now().strftime("%d/%m/%Y")}', 0, 1, 'C')
+    pdf.cell(0, 10, f'Período: {periodo}', 0, 1, 'C')
+    pdf.cell(0, 10, f'Analista: {pdf.clean_text(contador_nome)}', 0, 1, 'C')
+    pdf.cell(0, 10, f'Data de geração: {datetime.now().strftime("%d/%m/%Y")}', 0, 1, 'C')
     
     pdf.ln(20)
     
     # Sumário Executivo
-    pdf.chapter_title('SUMARIO EXECUTIVO - COMPLETO')
+    pdf.chapter_title('RELATÓRIO DE ANÁLISE - CORRESPONDÊNCIAS IDENTIFICADAS')
     
-    total_transacoes = len(extrato_df)
-    total_lancamentos = len(contabil_df)
-    total_conciliado = len(matches_aprovados)
-    valor_total_conciliado = sum(match['valor_total'] for match in matches_aprovados)
+    total_matches = len(resultados_analise['matches'])
+    total_excecoes = len(resultados_analise.get('excecoes', []))
+    total_extrato = len(extrato_df)
+    total_contabil = len(contabil_df)
     
     resumo_texto = f"""
-    Este relatorio apresenta os resultados completos do processo de conciliacao bancaria referente ao periodo {periodo}.
-
-    RESUMO ESTATISTICO COMPLETO:
-    - Transacoes bancarias analisadas: {total_transacoes}
-    - Lancamentos contabeis analisados: {total_lancamentos}
-    - Conciliações validadas: {total_conciliado}
-    - Valor total conciliado: R$ {valor_total_conciliado:,.2f}
-    - Taxa de sucesso: {(total_conciliado/max(total_transacoes, 1)*100):.1f}%
-    - Excecoes identificadas: {len(excecoes)}
-    - Matches rejeitados: {len(matches_rejeitados)}
-
-    METODOLOGIA DETALHADA:
-    O processo utilizou uma abordagem em tres camadas:
-    1. Matching Exato: Identificadores unicos (TXID, NSU, Nosso Numero)
-    2. Matching Heuristico: Tolerancias de data e valor + similaridade textual
-    3. Inteligencia Artificial: Casos complexos e analise semantica
+    ESTE É UM RELATÓRIO DE ANÁLISE E IDENTIFICAÇÃO DE CORRESPONDÊNCIAS
+    
+    OBJETIVO:
+    Identificar automaticamente relações entre transações bancárias e lançamentos contábeis
+    para auxiliar no processo de conciliação manual.
+    
+    RESULTADOS DA ANÁLISE:
+    - Transações bancárias analisadas: {total_extrato}
+    - Lançamentos contábeis analisados: {total_contabil}
+    - Correspondências identificadas: {total_matches}
+    - Divergências encontradas: {total_excecoes}
+    - Período analisado: {periodo}
+    
+    METODOLOGIA:
+    Análise em três camadas:
+    1. CORRESPONDÊNCIAS EXATAS: Valores e datas idênticos, identificadores únicos
+    2. CORRESPONDÊNCIAS POR SIMILARIDADE: Valores e datas próximos, textos similares  
+    3. ANÁLISE DE PADRÕES: Parcelamentos, consolidações, padrões temporais
+    
+    OBSERVAÇÕES:
+    {observacoes if observacoes else 'Nenhuma observação adicional'}
+    
+    ATENÇÃO: Este relatório apresenta CORRESPONDÊNCIAS IDENTIFICADAS
+    que devem ser validadas manualmente pelo contador antes da conciliação final.
     """
     
     pdf.chapter_body(resumo_texto)
     
-    # Página 2: Detalhes das Conciliações
+    # Página 2: Estatísticas Detalhadas
     pdf.add_page()
-    pdf.chapter_title('CONCILIACOES APROVADAS - DETALHADAS')
+    pdf.chapter_title('ESTATÍSTICAS DETALHADAS')
     
-    if matches_aprovados:
-        # Tabela de conciliações
-        headers = ['ID', 'Tipo', 'Camada', 'Confianca', 'Valor', 'Trans Bank', 'Lanc Cont']
+    # Métricas principais
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'MÉTRICAS PRINCIPAIS:', 0, 1)
+    pdf.set_font('Arial', '', 10)
+    
+    taxa_cobertura = (total_matches / total_extrato * 100) if total_extrato > 0 else 0
+    valor_total_extrato_absoluto = extrato_df['valor'].abs().sum()
+    valor_total_extrato = extrato_df['valor'].sum()
+    valor_total_contabil = contabil_df['valor'].sum()
+    
+    estatisticas_texto = f"""
+    VOLUME DE DADOS:
+    - Transações bancárias: {total_extrato}
+    - Lançamentos contábeis: {total_contabil}
+    - Valor total extrato (absoluto): R$ {valor_total_extrato_absoluto:,.2f}
+    - Valor total extrato: R$ {valor_total_extrato:,.2f}
+    - Valor total contábil: R$ {valor_total_contabil:,.2f}
+    
+    RESULTADOS DA IDENTIFICAÇÃO:
+    - Correspondências identificadas: {total_matches}
+    - Taxa de cobertura: {taxa_cobertura:.1f}%
+    - Divergências: {total_excecoes}
+    
+    DISTRIBUIÇÃO POR TIPO:
+    - Correspondências 1:1: {len([m for m in resultados_analise['matches'] if m['tipo_match'] == '1:1'])}
+    - Correspondências 1:N: {len([m for m in resultados_analise['matches'] if m['tipo_match'] == '1:N'])}
+    - Correspondências N:1: {len([m for m in resultados_analise['matches'] if m['tipo_match'] == 'N:1'])}
+    
+    EFETIVIDADE POR CAMADA:
+    - Correspondências exatas: {len([m for m in resultados_analise['matches'] if m['camada'] == 'exata'])}
+    - Correspondências por similaridade: {len([m for m in resultados_analise['matches'] if m['camada'] == 'heuristica'])}
+    - Correspondências complexas: {len([m for m in resultados_analise['matches'] if m['camada'] == 'ia'])}
+    """
+    
+    pdf.chapter_body(estatisticas_texto)
+    
+    # Página 3: Correspondências Identificadas
+    if resultados_analise['matches']:
+        pdf.add_page()
+        pdf.chapter_title('CORRESPONDÊNCIAS IDENTIFICADAS')
         
-        # Calcular larguras dinamicamente
-        col_widths = [15, 20, 25, 25, 30, 25, 25]
+        headers = ['ID', 'Tipo', 'Camada', 'Confiança', 'Valor Total', 'Trans Bank', 'Lanc Cont']
+        col_widths = [10, 20, 25, 20, 30, 20, 20]
         
-        # Cabeçalho
-        pdf.set_font('Arial', 'B', 9)
+        pdf.set_font('Arial', 'B', 8)
         for i, header in enumerate(headers):
             pdf.cell(col_widths[i], 8, header, 1, 0, 'C')
         pdf.ln()
         
-        # Dados
-        pdf.set_font('Arial', '', 8)
-        for i, match in enumerate(matches_aprovados):
+        pdf.set_font('Arial', '', 7)
+        for i, match in enumerate(resultados_analise['matches']):
             pdf.cell(col_widths[0], 6, str(i + 1), 1, 0, 'C')
             pdf.cell(col_widths[1], 6, match['tipo_match'], 1, 0, 'C')
             pdf.cell(col_widths[2], 6, match['camada'], 1, 0, 'C')
@@ -188,283 +190,170 @@ def gerar_relatorio_completo(matches_aprovados: List[Dict],
             pdf.cell(col_widths[6], 6, str(len(match['ids_contabil'])), 1, 0, 'C')
             pdf.ln()
         
-        # Detalhes das conciliações mais relevantes
         pdf.ln(10)
-        pdf.chapter_title('DETALHES DAS PRINCIPAIS CONCILIACOES')
+        pdf.chapter_title('PRINCIPAIS CORRESPONDÊNCIAS - DETALHES')
         
-        for i, match in enumerate(matches_aprovados[:10]):
-            pdf.set_font('Arial', 'B', 10)
-            pdf.cell(0, 8, f'Conciliação {i + 1}: {match["tipo_match"]} - {match["camada"]}', 0, 1)
-            pdf.set_font('Arial', '', 9)
-            pdf.multi_cell(0, 5, f'Explicacao: {pdf.clean_text(match["explicacao"])}')
-            pdf.multi_cell(0, 5, f'Valor: R$ {match["valor_total"]:.2f} | Confianca: {match["confianca"]}%')
-            pdf.ln(3)
-    else:
-        pdf.chapter_body('Nenhuma conciliacao aprovada para o periodo.')
-    
-    # Página 3: Exceções e Recomendações
-    if excecoes:
-        pdf.add_page()
-        pdf.chapter_title('EXCECOES E DIVERGENCIAS - DETALHES')
-        
-        for i, excecao in enumerate(excecoes):
-            pdf.set_font('Arial', 'B', 10)
-            pdf.cell(0, 8, f'Excecao {i + 1}: {excecao["tipo"]} - {excecao["severidade"]}', 0, 1)
-            pdf.set_font('Arial', '', 9)
-            pdf.multi_cell(0, 5, f'Descricao: {pdf.clean_text(excecao["descricao"])}')
-            pdf.multi_cell(0, 5, f'Acao Sugerida: {pdf.clean_text(excecao["acao_sugerida"])}')
-            pdf.multi_cell(0, 5, f'Transacoes envolvidas: {len(excecao["ids_envolvidos"])}')
+        for i, match in enumerate(resultados_analise['matches'][:10]):
+            pdf.set_font('Arial', 'B', 9)
+            pdf.cell(0, 8, f'Correspondência {i + 1}: {match["tipo_match"]} - {match["camada"]}', 0, 1)
+            pdf.set_font('Arial', '', 8)
+            pdf.multi_cell(0, 4, f'Justificativa: {pdf.clean_text(match["explicacao"])}')
+            pdf.multi_cell(0, 4, f'Valor: R$ {match["valor_total"]:.2f} | Confiança: {match["confianca"]}%')
+            
+            transacoes_extrato = extrato_df[extrato_df['id'].isin(match['ids_extrato'])]
+            transacoes_contabil = contabil_df[contabil_df['id'].isin(match['ids_contabil'])]
+            
+            pdf.multi_cell(0, 4, f'Transações bancárias: {len(transacoes_extrato)}')
+            for _, trans in transacoes_extrato.iterrows():
+                data_str = trans['data'].strftime('%d/%m') if hasattr(trans['data'], 'strftime') else str(trans['data'])
+                valor_original = trans.get('valor_original', trans['valor'])
+                pdf.multi_cell(0, 3, f'  - R$ {valor_original:,.2f} | {data_str} | {pdf.clean_text(trans["descricao"][:30])}')
+            
+            pdf.multi_cell(0, 4, f'Lançamentos contábeis: {len(transacoes_contabil)}')
+            for _, lanc in transacoes_contabil.iterrows():
+                data_str = lanc['data'].strftime('%d/%m') if hasattr(lanc['data'], 'strftime') else str(lanc['data'])
+                valor_original = lanc.get('valor_original', lanc['valor'])
+                pdf.multi_cell(0, 3, f'  - R$ {valor_original:,.2f} | {data_str} | {pdf.clean_text(lanc["descricao"][:30])}')
+            
             pdf.ln(5)
     
-    # Página 4: Matches Rejeitados
-    if matches_rejeitados:
+    # Página 4: Divergências
+    if resultados_analise.get('excecoes'):
         pdf.add_page()
-        pdf.chapter_title('MATCHES REJEITADOS - ANALISE')
+        pdf.chapter_title('DIVERGÊNCIAS IDENTIFICADAS')
         
-        pdf.set_font('Arial', '', 10)
-        pdf.multi_cell(0, 6, f'Total de matches rejeitados: {len(matches_rejeitados)}')
-        pdf.ln(5)
-        
-        for i, match in enumerate(matches_rejeitados[:5]):
-            pdf.set_font('Arial', 'B', 9)
-            pdf.cell(0, 8, f'Match Rejeitado {i + 1}: {match["tipo_match"]}', 0, 1)
-            pdf.set_font('Arial', '', 8)
-            pdf.multi_cell(0, 5, f'Razao: {pdf.clean_text(match.get("explicacao", "Nao especificada"))}')
-            pdf.multi_cell(0, 5, f'Valor: R$ {match["valor_total"]:.2f} | Confianca: {match["confianca"]}%')
-            pdf.ln(3)
+        for i, excecao in enumerate(resultados_analise['excecoes']):
+            pdf.set_font('Arial', 'B', 10)
+            pdf.cell(0, 8, f'Divergência {i + 1}: {excecao["tipo"]} - {excecao["severidade"]}', 0, 1)
+            pdf.set_font('Arial', '', 9)
+            pdf.multi_cell(0, 5, f'Descrição: {pdf.clean_text(excecao["descricao"])}')
+            pdf.multi_cell(0, 5, f'Recomendação: {pdf.clean_text(excecao["acao_sugerida"])}')
+            pdf.multi_cell(0, 5, f'Itens envolvidos: {len(excecao["ids_envolvidos"])}')
+            pdf.ln(5)
     
-    # Página 5: Observações e Assinatura
+    # Página 5: Tabela de Divergências Detalhadas
+    if divergencias_tabela is not None and not divergencias_tabela.empty:
+        try:
+            pdf.add_page()
+            pdf.chapter_title('TABELA DETALHADA DE DIVERGÊNCIAS')
+            
+            headers = ['Tipo', 'Severidade', 'Data', 'Descrição', 'Valor', 'Origem']
+            col_widths = [15, 20, 20, 60, 25, 20]  # Aumentei a largura da descrição
+            
+            pdf.set_font('Arial', 'B', 8)
+            for i, header in enumerate(headers):
+                pdf.cell(col_widths[i], 8, header, 1, 0, 'C')
+            pdf.ln()
+            
+            # Função auxiliar para abreviar tipos
+            def abreviar_tipo_divergencia(tipo_original):
+                """Abrevia tipos longos de divergência para melhor visualização na tabela"""
+                abreviacoes = {
+                    'TRANSAÇÃO_SEM_CORRESPONDÊNCIA': 'TSC',
+                    'LANÇAMENTO_SEM_CORRESPONDÊNCIA': 'LSC',
+                    'TRANSAÇÃO_SEM_CORRESPONDENCIA': 'TSC',  # Fallback sem acento
+                    'LANÇAMENTO_SEM_CORRESPONDENCIA': 'LSC'  # Fallback sem acento
+                }
+                return abreviacoes.get(tipo_original, tipo_original)
+            
+            pdf.set_font('Arial', '', 7)
+            for _, row in divergencias_tabela.iterrows():
+                # Truncar descrição se for muito longa
+                descricao = str(row.get('Descrição', row.get('descricao', '')))[:50] + "..." if len(str(row.get('Descrição', row.get('descricao', '')))) > 50 else str(row.get('Descrição', row.get('descricao', '')))
+                
+                # Obter valores com fallbacks e ABREVIAR tipos longos
+                tipo_original = str(row.get('Tipo_Divergência', row.get('Tipo', '')))
+                tipo = abreviar_tipo_divergencia(tipo_original)
+                
+                severidade = str(row.get('Severidade', ''))
+                data = str(row.get('Data', ''))
+                valor = str(row.get('Valor', ''))
+                origem = str(row.get('Origem', ''))
+                
+                pdf.cell(col_widths[0], 6, pdf.clean_text(tipo), 1, 0, 'C')
+                pdf.cell(col_widths[1], 6, pdf.clean_text(severidade), 1, 0, 'C')
+                pdf.cell(col_widths[2], 6, pdf.clean_text(data), 1, 0, 'C')
+                pdf.cell(col_widths[3], 6, pdf.clean_text(descricao), 1, 0, 'L')
+                pdf.cell(col_widths[4], 6, pdf.clean_text(valor), 1, 0, 'C')
+                pdf.cell(col_widths[5], 6, pdf.clean_text(origem), 1, 0, 'C')
+                pdf.ln()
+            
+            pdf.ln(5)
+            pdf.set_font('Arial', 'I', 8)
+            pdf.cell(0, 6, f'Total de divergências detalhadas: {len(divergencias_tabela)}', 0, 1)
+            
+            # LEGENDA DAS ABREVIAÇÕES
+            pdf.ln(2)
+            pdf.set_font('Arial', 'B', 8)
+            pdf.cell(0, 6, 'LEGENDA DAS ABREVIAÇÕES:', 0, 1)
+            pdf.set_font('Arial', '', 7)
+            pdf.multi_cell(0, 4, 'TSC = Transação Sem Correspondência | LSC = Lançamento Sem Correspondência')
+            
+        except Exception as e:
+            print(f"⚠️ Aviso: Não foi possível adicionar tabela de divergências: {e}")
+    
+    # Página final: Recomendações
     pdf.add_page()
-    pdf.chapter_title('OBSERVACOES E RECOMENDACOES COMPLETAS')
+    pdf.chapter_title('RECOMENDAÇÕES E PRÓXIMOS PASSOS')
     
-    if observacoes:
-        pdf.chapter_body(f'OBSERVACOES:\n{pdf.clean_text(observacoes)}')
-    else:
-        pdf.chapter_body('Nenhuma observacao adicional fornecida.')
+    recomendacoes_texto = """
+    RECOMENDAÇÕES PARA CONCILIAÇÃO MANUAL:
     
-    pdf.ln(10)
-    pdf.chapter_title('RECOMENDACOES DETALHADAS')
+    1. VALIDAR CORRESPONDÊNCIAS IDENTIFICADAS
+       - Confirmar cada correspondência proposta
+       - Verificar se as relações fazem sentido comercial
+       - Validar valores e datas
     
-    recomendacoes = """
-    1. Implementar as conciliacoes aprovadas no sistema contabil
-    2. Investigar e resolver as excecoes identificadas
-    3. Revisar processos para reduzir divergencias futuras
-    4. Manter documentacao adequada para auditoria
-    5. Realizar conciliacao mensalmente para melhor controle
-    6. Analisar os matches rejeitados para melhorar o processo
-    7. Documentar as lições aprendidas com as excecoes
+    2. INVESTIGAR DIVERGÊNCIAS
+       - Analisar transações sem correspondência (TSC)
+       - Verificar lançamentos sem movimento bancário (LSC)
+       - Identificar possíveis erros de lançamento
+    
+    3. AJUSTES NECESSÁRIOS
+       - Corrigir lançamentos incorretos
+       - Incluir transações omitidas
+       - Ajustar classificações contábeis
+    
+    4. DOCUMENTAÇÃO
+       - Manter registro das validações realizadas
+       - Documentar ajustes feitos
+       - Arquivar este relatório de análise
+    
+    OBSERVAÇÕES IMPORTANTES:
+    - Este relatório é uma FERRAMENTA DE AUXÍLIO
+    - Todas as correspondências devem ser VALIDADAS MANUALMENTE
+    - A responsabilidade final pela conciliação é do contador
+    - Mantenha documentação adequada para auditoria
     """
     
-    pdf.chapter_body(recomendacoes)
+    pdf.chapter_body(recomendacoes_texto)
     
     # Assinatura
-    pdf.ln(20)
-    pdf.set_font('Arial', '', 10)
-    pdf.cell(0, 8, '_________________________', 0, 1, 'C')
-    pdf.cell(0, 8, pdf.clean_text(contador_nome), 0, 1, 'C')
-    pdf.cell(0, 8, 'Contador Responsavel', 0, 1, 'C')
-    
-    # Salvar PDF
-    temp_dir = tempfile.gettempdir()
-    pdf_path = os.path.join(temp_dir, f'relatorio_completo_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
-    pdf.output(pdf_path)
-    
-    return pdf_path
-
-def gerar_relatorio_resumido(matches_aprovados: List[Dict],
-                           matches_rejeitados: List[Dict],
-                           excecoes: List[Dict],
-                           extrato_df: pd.DataFrame,
-                           contabil_df: pd.DataFrame,
-                           empresa_nome: str = "Empresa",
-                           contador_nome: str = "Contador",
-                           periodo: str = "",
-                           observacoes: str = "") -> str:
-    """Gera versão resumida do relatório - apenas informações essenciais"""
-    
-    pdf = PDFReport()
-    
-    # Página 1: Capa e Sumário Executivo
-    pdf.add_page()
-    
-    # Capa
-    pdf.set_font('Arial', 'B', 20)
-    pdf.cell(0, 40, 'RELATORIO DE CONCILIACAO - RESUMIDO', 0, 1, 'C')
-    pdf.set_font('Arial', 'B', 16)
-    pdf.cell(0, 20, pdf.clean_text(empresa_nome), 0, 1, 'C')
-    pdf.set_font('Arial', '', 12)
-    pdf.cell(0, 10, f'Periodo: {periodo}', 0, 1, 'C')
-    pdf.cell(0, 10, f'Responsavel: {pdf.clean_text(contador_nome)}', 0, 1, 'C')
-    
-    pdf.ln(20)
-    
-    # Sumário Executivo RESUMIDO
-    pdf.chapter_title('SUMARIO EXECUTIVO RESUMIDO')
-    
-    total_conciliado = len(matches_aprovados)
-    valor_total_conciliado = sum(match['valor_total'] for match in matches_aprovados)
-    total_analisado = len(matches_aprovados) + len(matches_rejeitados)
-    taxa_sucesso = (total_conciliado / total_analisado * 100) if total_analisado > 0 else 0
-    
-    resumo_texto = f"""
-    RESUMO ESTATISTICO:
-    - Conciliações validadas: {total_conciliado}
-    - Valor total conciliado: R$ {valor_total_conciliado:,.2f}
-    - Taxa de sucesso: {taxa_sucesso:.1f}%
-    - Excecoes identificadas: {len(excecoes)}
-    
-    STATUS: CONCILIACAO REALIZADA COM SUCESSO
-    
-    PRINCIPAIS RESULTADOS:
-    A conciliacao foi concluida com {total_conciliado} matches validados,
-    totalizando R$ {valor_total_conciliado:,.2f} em transacoes conciliadas.
-    """
-    
-    pdf.chapter_body(resumo_texto)
-    
-    # Apenas tabela resumida
-    if matches_aprovados:
-        pdf.ln(10)
-        pdf.chapter_title('CONCILIACOES APROVADAS (RESUMO)')
-        
-        headers = ['ID', 'Tipo', 'Valor', 'Confianca']
-        col_widths = [15, 25, 40, 30]
-        
-        # Cabeçalho
-        pdf.set_font('Arial', 'B', 9)
-        for i, header in enumerate(headers):
-            pdf.cell(col_widths[i], 8, header, 1, 0, 'C')
-        pdf.ln()
-        
-        # Dados
-        pdf.set_font('Arial', '', 8)
-        for i, match in enumerate(matches_aprovados):
-            pdf.cell(col_widths[0], 6, str(i + 1), 1, 0, 'C')
-            pdf.cell(col_widths[1], 6, match['tipo_match'], 1, 0, 'C')
-            pdf.cell(col_widths[2], 6, f"R$ {match['valor_total']:.2f}", 1, 0, 'C')
-            pdf.cell(col_widths[3], 6, f"{match['confianca']}%", 1, 0, 'C')
-            pdf.ln()
-    
-    # Recomendações básicas
-    pdf.ln(10)
-    pdf.chapter_title('RECOMENDACOES BASICAS')
-    
-    recomendacoes = """
-    1. Implementar conciliacoes aprovadas
-    2. Verificar excecoes identificadas
-    3. Manter documentacao
-    """
-    
-    pdf.chapter_body(recomendacoes)
-    
-    # Assinatura simplificada
     pdf.ln(15)
     pdf.set_font('Arial', '', 10)
     pdf.cell(0, 8, '_________________________', 0, 1, 'C')
     pdf.cell(0, 8, pdf.clean_text(contador_nome), 0, 1, 'C')
+    pdf.cell(0, 8, 'Contador Responsável', 0, 1, 'C')
     
     # Salvar PDF
     temp_dir = tempfile.gettempdir()
-    pdf_path = os.path.join(temp_dir, f'relatorio_resumido_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
-    pdf.output(pdf_path)
+    pdf_path = os.path.join(temp_dir, f'relatorio_analise_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
     
-    return pdf_path
+    try:
+        pdf.output(pdf_path)
+        return pdf_path
+    except Exception as e:
+        print(f"Erro ao salvar PDF: {e}")
+        pdf_path_fallback = os.path.join(temp_dir, f'relatorio_analise_fallback_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
+        pdf.output(pdf_path_fallback)
+        return pdf_path_fallback
 
-def gerar_relatorio_executivo(matches_aprovados: List[Dict],
-                            matches_rejeitados: List[Dict],
-                            excecoes: List[Dict],
-                            extrato_df: pd.DataFrame,
-                            contabil_df: pd.DataFrame,
-                            empresa_nome: str = "Empresa",
-                            contador_nome: str = "Contador",
-                            periodo: str = "",
-                            observacoes: str = "") -> str:
-    """Gera versão executiva do relatório - foco em métricas e tomada de decisão"""
-    
-    pdf = PDFReport()
-    
-    # Página 1: Capa e Sumário Executivo
-    pdf.add_page()
-    
-    # Capa
-    pdf.set_font('Arial', 'B', 20)
-    pdf.cell(0, 40, 'RELATORIO EXECUTIVO DE CONCILIACAO', 0, 1, 'C')
-    pdf.set_font('Arial', 'B', 16)
-    pdf.cell(0, 20, pdf.clean_text(empresa_nome), 0, 1, 'C')
-    pdf.set_font('Arial', '', 12)
-    pdf.cell(0, 10, f'Periodo: {periodo}', 0, 1, 'C')
-    
-    pdf.ln(20)
-    
-    # Sumário Executivo EXECUTIVO
-    pdf.chapter_title('RELATORIO EXECUTIVO - VISAO GERAL')
-    
-    total_conciliado = len(matches_aprovados)
-    valor_total_conciliado = sum(match['valor_total'] for match in matches_aprovados)
-    total_analisado = len(matches_aprovados) + len(matches_rejeitados)
-    taxa_sucesso = (total_conciliado / total_analisado * 100) if total_analisado > 0 else 0
-    excecoes_criticas = len([e for e in excecoes if e.get('severidade') == 'ALTA'])
-    
-    resumo_texto = f"""
-    METRICAS CHAVE PARA DECISAO:
-    
-    PERFORMANCE DA CONCILIACAO:
-    - Taxa de sucesso: {taxa_sucesso:.1f}%
-    - Valor financeiro conciliado: R$ {valor_total_conciliado:,.2f}
-    - Volume de transacoes validadas: {total_conciliado}
-    
-    PONTOS DE ATENCAO:
-    - Excecoes criticas: {excecoes_criticas}
-    - Matches rejeitados: {len(matches_rejeitados)}
-    
-    STATUS EXECUTIVO:
-    [OK] CONCILIACAO BEM-SUCEDIDA
-    
-    A operacao foi concluida com indicadores positivos,
-    demonstrando eficacia no processo de conciliacao.
-    """
-    
-    pdf.chapter_body(resumo_texto)
-    
-    # Apenas métricas principais e top conciliações
-    if matches_aprovados:
-        pdf.ln(10)
-        pdf.chapter_title('PRINCIPAIS CONCILIACOES POR VALOR')
-        
-        # Apenas as 5 maiores conciliações
-        maiores_matches = sorted(matches_aprovados, key=lambda x: x['valor_total'], reverse=True)[:5]
-        
-        for i, match in enumerate(maiores_matches):
-            pdf.set_font('Arial', 'B', 10)
-            pdf.cell(0, 8, f'Top {i + 1}: R$ {match["valor_total"]:,.2f}', 0, 1)
-            pdf.set_font('Arial', '', 9)
-            pdf.multi_cell(0, 5, f'Tipo: {match["tipo_match"]} | Confianca: {match["confianca"]}% | Camada: {match["camada"]}')
-            pdf.ln(3)
-    
-    # Recomendações executivas
-    pdf.ln(10)
-    pdf.chapter_title('RECOMENDACOES EXECUTIVAS')
-    
-    recomendacoes = """
-    1. APROVAR implementacao das conciliacoes validadas
-    2. DESTINAR recursos para analise das excecoes criticas
-    3. MANTER a periodicidade mensal do processo
-    4. CONSIDERAR a automacao para ganhos de eficiencia
-    """
-    
-    pdf.chapter_body(recomendacoes)
-    
-    # Assinatura executiva
-    pdf.ln(20)
-    pdf.set_font('Arial', '', 10)
-    pdf.cell(0, 8, '_________________________', 0, 1, 'C')
-    pdf.cell(0, 8, pdf.clean_text(contador_nome), 0, 1, 'C')
-    pdf.cell(0, 8, 'Contador Responsavel', 0, 1, 'C')
-    pdf.cell(0, 8, pdf.clean_text(empresa_nome), 0, 1, 'C')
-    
-    # Salvar PDF
-    temp_dir = tempfile.gettempdir()
-    pdf_path = os.path.join(temp_dir, f'relatorio_executivo_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
-    pdf.output(pdf_path)
-    
-    return pdf_path
+def _abreviar_tipo_divergencia(self, tipo_original):
+    """Abrevia tipos longos de divergência para melhor visualização na tabela"""
+    abreviacoes = {
+        'TRANSAÇÃO_SEM_CORRESPONDÊNCIA': 'TSC',
+        'LANÇAMENTO_SEM_CORRESPONDÊNCIA': 'LSC',
+        'TRANSAÇÃO_SEM_CORRESPONDENCIA': 'TSC',  # Fallback sem acento
+        'LANÇAMENTO_SEM_CORRESPONDENCIA': 'LSC'  # Fallback sem acento
+    }
+    return abreviacoes.get(tipo_original, tipo_original)

@@ -10,57 +10,65 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- Menu Customizado ---
+with st.sidebar:
+    st.markdown("### Navegação Principal") # Título (opcional)
+    st.page_link("app.py", label="Início (Home)", icon="🏠")
+    
+    # Use o nome do arquivo exato no primeiro parâmetro, e o que quiser no 'label'
+    st.page_link("pages/importacao_dados.py", label="📥 Importação de Dados", icon=None)
+    st.page_link("pages/analise_dados.py", label="📊 Análise de Divergências", icon=None)
+    st.page_link("pages/gerar_relatorio.py", label="📝 Relatório Final", icon=None)
+# --- Fim do Menu Customizado ---
+
+
 # Título principal
 st.title("🏦 Sistema de Conciliação Bancária")
 st.markdown("""
-### Sistema profissional para análise e conciliação de extratos bancários
+### Sistema para análise e conciliação de extratos bancários e lançamentos contábeis
 
 **Funcionalidades principais:**
-- 📥 **Importação** de extratos bancários e lançamentos contábeis
-- 🔍 **Análise inteligente** com matching em múltiplas camadas
-- 📋 **Revisão assistida** para validação do contador
-- 📄 **Relatórios PDF** profissionais para documentação
+- **Importação** de extratos bancários e lançamentos contábeis
+- **Análise inteligente** com matching em múltiplas camadas
+- **Relatórios em PDF** para documentação
 
 **Fluxo recomendado:**
 1. **Importação** → Carregue os arquivos bancários e contábeis
 2. **Análise** → Sistema identifica correspondências automaticamente
-3. **Revisão** → Valide as conciliações propostas
-4. **Relatório** → Gere PDF para documentação e auditoria
+3. **Relatório** → Gere PDF para documentação e auditoria
 """)
 
 # Navegação entre páginas
 st.divider()
-st.subheader("🚀 Iniciar Conciliação")
+st.subheader("Iniciar Conciliação")
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    if st.button("📥 Importação de Dados", use_container_width=True):
+    if st.button("Importação de Dados", width='stretch'):
         st.switch_page("pages/importacao_dados.py")
 
 with col2:
-    if st.button("🔍 Análise de Dados", use_container_width=True):
+    if st.button("Análise de Dados", width='stretch'):
         st.switch_page("pages/analise_dados.py")
 
 with col3:
-    if st.button("📋 Revisão de Resultados", use_container_width=True):
-        st.switch_page("pages/revisao_resultados.py")
-
-with col4:
-    if st.button("📄 Gerar Relatório", use_container_width=True):
+    if st.button(" Gerar Relatório", width='stretch'):
         st.switch_page("pages/gerar_relatorio.py")
 
 # Informações do sistema
 with st.sidebar:
     st.header("ℹ️ Sobre o Sistema")
     st.markdown("""
-    **Versão:** 1.0.0
-    **Desenvolvido para:** Empresas e contadores
+    **Versão:** 2.0.0      
+    **Desenvolvido para:** Empresas e contadores  
+    **Desenvolvido por:** Luiz Bispo (X-Testing)
+                
     **Funcionalidades:**
     - Suporte a OFX, CSV, CNAB
     - Matching inteligente
     - Auditoria completa
-    - Relatórios PDF
+    - Relatórios em PDF
     """)
     
     # Status da sessão atual
@@ -85,7 +93,7 @@ with st.sidebar:
 
 # Limpar sessão
 st.sidebar.divider()
-if st.sidebar.button("🔄 Nova Análise", use_container_width=True):
+if st.sidebar.button("🔄 Nova Análise", width='stretch'):
     keys_to_clear = [
         'extrato_carregado', 'contabil_carregado', 'caminho_extrato', 
         'caminho_contabil', 'resultados_analise', 'extrato_df', 

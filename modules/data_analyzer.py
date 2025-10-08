@@ -17,12 +17,27 @@ class DataAnalyzer:
         self.excecoes = []
         self.audit_trail = []
         
+    def _garantir_coluna_id(self, df: pd.DataFrame, nome_df: str = "DataFrame") -> pd.DataFrame:
+        """Garante que o DataFrame tenha coluna 'id'"""
+        df = df.copy()
+        
+        if 'id' not in df.columns:
+            logger.warning(f"Coluna 'id' não encontrada em {nome_df}. Criando automaticamente.")
+            df['id'] = range(1, len(df) + 1)
+        
+        return df
+
     def matching_exato(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame) -> Dict:
         """
         Camada 1: Matching exato usando identificadores únicos
         TXID PIX, NSU, Nosso Número, etc.
         """
         logger.info("Iniciando matching exato")
+        
+        # CORREÇÃO: Garantir que as colunas 'id' existem
+        extrato_df = self._garantir_coluna_id(extrato_df, "extrato_df")
+        contabil_df = self._garantir_coluna_id(contabil_df, "contabil_df")
+        
         matches = []
         extrato_match_ids = set()
         contabil_match_ids = set()
@@ -331,8 +346,8 @@ class DataAnalyzer:
         return matches
     
     def _match_valor_data_exata(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
-                               extrato_match_ids: set, contabil_match_ids: set) -> List[Dict]:
-        """Matching por valor e data exata"""
+                           extrato_match_ids: set, contabil_match_ids: set) -> List[Dict]:
+        """Matching por valor e data exata - CORREÇÃO: considerar valor absoluto"""
         matches = []
         
         # Filtrar não matchados
@@ -343,9 +358,12 @@ class DataAnalyzer:
             if extrato_row['id'] in extrato_match_ids:
                 continue
                 
+            # CORREÇÃO: Usar valor absoluto para comparação
+            valor_extrato_abs = abs(extrato_row['valor'])
+            
             # Buscar correspondência exata
             contabil_correspondentes = contabil_nao_match[
-                (contabil_nao_match['valor'] == extrato_row['valor']) &
+                (abs(contabil_nao_match['valor']) == valor_extrato_abs) &
                 (contabil_nao_match['data'] == extrato_row['data']) &
                 (~contabil_nao_match['id'].isin(contabil_match_ids))
             ]
@@ -358,10 +376,10 @@ class DataAnalyzer:
                     'camada': 'exata',
                     'ids_extrato': [extrato_row['id']],
                     'ids_contabil': [contabil_row['id']],
-                    'valor_total': extrato_row['valor'],
+                    'valor_total': valor_extrato_abs,  # Usar valor absoluto
                     'confianca': 95,
-                    'explicacao': f"Match exato por valor (R$ {extrato_row['valor']:.2f}) e data ({extrato_row['data']})",
-                    'chave_match': f"VALOR_DATA_{extrato_row['valor']}_{extrato_row['data']}"
+                    'explicacao': f"Match exato por valor (R$ {valor_extrato_abs:.2f}) e data ({extrato_row['data']}) - considerando valor absoluto",
+                    'chave_match': f"VALOR_DATA_{valor_extrato_abs}_{extrato_row['data']}"
                 }
                 matches.append(match)
                 
@@ -370,10 +388,10 @@ class DataAnalyzer:
                 contabil_match_ids.add(contabil_row['id'])
         
         return matches
-    
+
     def _match_heuristico_1_1(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
-                             tolerancia_dias: int, tolerancia_valor: float, similaridade_minima: int) -> List[Dict]:
-        """Matching heurístico 1:1 com tolerâncias"""
+                            tolerancia_dias: int, tolerancia_valor: float, similaridade_minima: int) -> List[Dict]:
+        """Matching heurístico 1:1 - CORREÇÃO: considerar valor absoluto"""
         matches = []
         extrato_match_ids = set()
         contabil_match_ids = set()
@@ -382,10 +400,13 @@ class DataAnalyzer:
             if extrato_row['id'] in extrato_match_ids:
                 continue
                 
+            # CORREÇÃO: Usar valor absoluto para comparação
+            valor_extrato_abs = abs(extrato_row['valor'])
+            
             # Buscar correspondências com tolerâncias
             contabil_candidatos = contabil_df[
                 (~contabil_df['id'].isin(contabil_match_ids)) &
-                (abs(contabil_df['valor'] - extrato_row['valor']) <= tolerancia_valor)
+                (abs(abs(contabil_df['valor']) - valor_extrato_abs) <= tolerancia_valor)
             ]
             
             for _, contabil_row in contabil_candidatos.iterrows():
@@ -404,18 +425,18 @@ class DataAnalyzer:
                 )
                 
                 if similaridade >= similaridade_minima:
-                    confianca = self._calcular_confianca_heuristica(
-                        data_diff, abs(contabil_row['valor'] - extrato_row['valor']), similaridade
-                    )
+                    # CORREÇÃO: Calcular diferença usando valores absolutos
+                    diff_valor = abs(abs(contabil_row['valor']) - valor_extrato_abs)
+                    confianca = self._calcular_confianca_heuristica(data_diff, diff_valor, similaridade)
                     
                     match = {
                         'tipo_match': '1:1',
                         'camada': 'heuristica',
                         'ids_extrato': [extrato_row['id']],
                         'ids_contabil': [contabil_row['id']],
-                        'valor_total': extrato_row['valor'],
+                        'valor_total': valor_extrato_abs,
                         'confianca': confianca,
-                        'explicacao': f"Match heurístico: similaridade {similaridade}%, diferença de {data_diff} dias, diferença de R$ {abs(contabil_row['valor'] - extrato_row['valor']):.2f}",
+                        'explicacao': f"Match heurístico: similaridade {similaridade}%, diferença de {data_diff} dias, diferença de R$ {diff_valor:.2f} (valor absoluto)",
                         'chave_match': f"HEUR_{extrato_row['id']}_{contabil_row['id']}"
                     }
                     matches.append(match)
@@ -538,3 +559,95 @@ def consolidar_resultados(resultados_exato: Dict, resultados_heurístico: Dict, 
             'total_excecoes': len(excecoes)
         }
     }
+
+def get_detalhes_divergencias_tabela(self, excecoes: List[Dict], 
+                                   extrato_df: pd.DataFrame, 
+                                   contabil_df: pd.DataFrame) -> pd.DataFrame:
+    """Retorna detalhes das divergências em formato tabular"""
+    divergencias_detalhadas = []
+    
+    for excecao in excecoes:
+        if excecao['tipo'] == 'TRANSAÇÃO_SEM_CORRESPONDÊNCIA':
+            transacoes = extrato_df[extrato_df['id'].isin(excecao['ids_envolvidos'])]
+            for _, transacao in transacoes.iterrows():
+                divergencias_detalhadas.append({
+                    'Tipo_Divergência': excecao['tipo'],
+                    'Severidade': excecao['severidade'],
+                    'Data': transacao['data'],
+                    'Descrição': transacao.get('descricao', ''),
+                    'Valor': transacao['valor'],
+                    'Origem': 'Extrato Bancário',
+                    'Ação_Recomendada': excecao['acao_sugerida']
+                })
+        
+        elif excecao['tipo'] == 'LANÇAMENTO_SEM_CORRESPONDÊNCIA':
+            lancamentos = contabil_df[contabil_df['id'].isin(excecao['ids_envolvidos'])]
+            for _, lancamento in lancamentos.iterrows():
+                divergencias_detalhadas.append({
+                    'Tipo_Divergência': excecao['tipo'],
+                    'Severidade': excecao['severidade'],
+                    'Data': lancamento['data'],
+                    'Descrição': lancamento.get('descricao', ''),
+                    'Valor': lancamento['valor'],
+                    'Origem': 'Contábil',
+                    'Ação_Recomendada': excecao['acao_sugerida']
+                })
+        else:
+            divergencias_detalhadas.append({
+                'Tipo_Divergência': excecao['tipo'],
+                'Severidade': excecao['severidade'],
+                'Data': None,
+                'Descrição': excecao['descricao'],
+                'Valor': 0,
+                'Origem': 'Sistema',
+                'Ação_Recomendada': excecao['acao_sugerida']
+            })
+    
+    return pd.DataFrame(divergencias_detalhadas)
+
+def get_detalhes_divergencias_tabela(self, excecoes: List[Dict], 
+                                   extrato_df: pd.DataFrame, 
+                                   contabil_df: pd.DataFrame) -> pd.DataFrame:
+    """Retorna detalhes das divergências em formato tabular"""
+    divergencias_detalhadas = []
+    
+    for excecao in excecoes:
+        if excecao['tipo'] == 'TRANSAÇÃO_SEM_CORRESPONDÊNCIA':
+            transacoes = extrato_df[extrato_df['id'].isin(excecao['ids_envolvidos'])]
+            for _, transacao in transacoes.iterrows():
+                divergencias_detalhadas.append({
+                    'Tipo_Divergência': excecao['tipo'],
+                    'Severidade': excecao['severidade'],
+                    'Data': transacao['data'],
+                    'Descrição': transacao.get('descricao', ''),
+                    'Valor': transacao['valor'],
+                    'Origem': 'Extrato Bancário',
+                    'Ação_Recomendada': excecao['acao_sugerida']
+                })
+        
+        elif excecao['tipo'] == 'LANÇAMENTO_SEM_CORRESPONDÊNCIA':
+            lancamentos = contabil_df[contabil_df['id'].isin(excecao['ids_envolvidos'])]
+            for _, lancamento in lancamentos.iterrows():
+                divergencias_detalhadas.append({
+                    'Tipo_Divergência': excecao['tipo'],
+                    'Severidade': excecao['severidade'],
+                    'Data': lancamento['data'],
+                    'Descrição': lancamento.get('descricao', ''),
+                    'Valor': lancamento['valor'],
+                    'Origem': 'Contábil',
+                    'Ação_Recomendada': excecao['acao_sugerida']
+                })
+        else:
+            # Para outros tipos de divergência
+            divergencias_detalhadas.append({
+                'Tipo_Divergência': excecao['tipo'],
+                'Severidade': excecao['severidade'],
+                'Data': None,
+                'Descrição': excecao['descricao'],
+                'Valor': 0,
+                'Origem': 'Sistema',
+                'Ação_Recomendada': excecao['acao_sugerida'],
+                'Itens_Envolvidos': len(excecao['ids_envolvidos'])
+            })
+    
+    return pd.DataFrame(divergencias_detalhadas)
