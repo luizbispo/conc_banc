@@ -7,6 +7,10 @@ import tempfile
 import modules.data_analyzer as analyzer
 from difflib import SequenceMatcher
 from modules.auth_middleware import require_auth
+import plotly.express as px
+import plotly.graph_objects as go
+from modules.interactive_dashboard import get_dashboard
+
 
 @require_auth
 
@@ -485,8 +489,14 @@ def main():
         # --- Fim do CSS ---
 
         # Abas de detalhamento
-        aba1, aba2, aba3, aba4 = st.tabs(["Correspondências Identificadas", "⚠️ Divergências", "Estatísticas", " Detalhes Técnicos"])
-        
+        aba1, aba2, aba3, aba4, aba5 = st.tabs([
+            "🔍 Correspondências", 
+            "⚠️ Divergências", 
+            "📊 Estatísticas", 
+            "📈 Dashboard Interativo",
+            "🔧 Detalhes Técnicos"
+        ])
+
         with aba1:
             st.subheader("Correspondências Identificadas")
             
@@ -660,7 +670,92 @@ def main():
                     
                     with col_ia4:
                         st.metric("Matches por Entidades", matches_entidades)
+        
         with aba4:
+            st.header("📈 Dashboard Interativo de Análise")
+            
+            if 'resultados_analise' in st.session_state:
+                dashboard = get_dashboard()
+                
+                # Controles do dashboard
+                col_controls1, col_controls2, col_controls3 = st.columns(3)
+                
+                with col_controls1:
+                    show_overview = st.checkbox("Visão Geral", value=True)
+                with col_controls2:
+                    show_timeline = st.checkbox("Análise Temporal", value=True)
+                with col_controls3:
+                    show_distribution = st.checkbox("Distribuição de Valores", value=True)
+                
+                # Visão Geral
+                if show_overview:
+                    st.subheader("📊 Visão Geral da Conciliação")
+                    overview_fig = dashboard.create_reconciliation_overview(
+                        st.session_state.resultados_analise,
+                        st.session_state.extrato_filtrado,
+                        st.session_state.contabil_filtrado
+                    )
+                    st.plotly_chart(overview_fig, use_container_width=True)
+                
+                # Análise Temporal
+                if show_timeline:
+                    st.subheader("📈 Análise Temporal")
+                    timeline_fig = dashboard.create_timeline_analysis(
+                        st.session_state.extrato_filtrado,
+                        st.session_state.contabil_filtrado
+                    )
+                    st.plotly_chart(timeline_fig, use_container_width=True)
+                
+                # Distribuição de Valores
+                if show_distribution:
+                    st.subheader("📦 Distribuição de Valores")
+                    distribution_fig = dashboard.create_value_distribution(
+                        st.session_state.extrato_filtrado,
+                        st.session_state.contabil_filtrado
+                    )
+                    st.plotly_chart(distribution_fig, use_container_width=True)
+                
+                # Análise de Confiança (apenas se houver matches)
+                if st.session_state.resultados_analise.get('matches'):
+                    st.subheader("🎯 Análise de Confiança")
+                    confidence_fig = dashboard.create_confidence_analysis(st.session_state.resultados_analise)
+                    st.plotly_chart(confidence_fig, use_container_width=True)
+                
+                # Métricas Comparativas
+                st.subheader("📋 Métricas Comparativas")
+                metrics_fig = dashboard.create_comparison_metrics(
+                    st.session_state.extrato_filtrado,
+                    st.session_state.contabil_filtrado
+                )
+                st.plotly_chart(metrics_fig, use_container_width=True)
+                # Estatísticas Rápidas
+                col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+                
+                with col_stat1:
+                    total_extrato = len(st.session_state.extrato_filtrado)
+                    st.metric("Transações Bancárias", total_extrato)
+                
+                with col_stat2:
+                    total_contabil = len(st.session_state.contabil_filtrado)
+                    st.metric("Lançamentos Contábeis", total_contabil)
+                
+                with col_stat3:
+                    total_matches = len(st.session_state.resultados_analise.get('matches', []))
+                    st.metric("Correspondências", total_matches)
+                
+                with col_stat4:
+                    taxa_conciliação = (total_matches / total_extrato * 100) if total_extrato > 0 else 0
+                    st.metric("Taxa de Conciliação", f"{taxa_conciliação:.1f}%")
+            
+            else:
+                st.info("💡 Execute a análise de correspondências primeiro para visualizar o dashboard.")
+                if st.button("🔍 Executar Análise", key="btn_analise_dashboard"):
+                    st.switch_page("pages/analise_dados.py")
+        
+        
+        
+        
+        with aba5:
             st.subheader("Detalhes Técnicos da Análise")
             
             st.json({

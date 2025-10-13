@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import modules.data_processor as processor
 import tempfile
 import os
+from modules.performance_optimizer import chunker, cache_manager
 
 # --- Menu Customizado ---
 with st.sidebar:
@@ -222,7 +223,7 @@ def processar_ofx(arquivo):
         st.error(f"Erro ao processar OFX: {e}")
         return None
 
-# FUNÇÕES CNAB CORRIGIDAS - VERSÃO ÚNICA E ORGANIZADA
+# FUNÇÕES CNAB CORRIGIDAS 
 def _processar_valor_cnab_corrigido(valor_str):
     """Processa valor CNAB CORRETAMENTE - últimos 2 dígitos são centavos"""
     try:
@@ -231,7 +232,7 @@ def _processar_valor_cnab_corrigido(valor_str):
         if not valor_str or valor_str == '0000000000000':
             return 0.0
         
-        # CORREÇÃO: Em CNAB, os últimos 2 dígitos são centavos
+        # Em CNAB, os últimos 2 dígitos são centavos
         parte_inteira = valor_str[:-2]  # Todos exceto últimos 2 dígitos
         parte_decimal = valor_str[-2:]  # Últimos 2 dígitos
         
@@ -1075,14 +1076,14 @@ if st.session_state.extrato_df is not None and st.session_state.contabil_df is n
     if sistema_validacao and st.session_state.conta_selecionada:
         st.success(f"✅ Dados da conta {st.session_state.conta_selecionada} carregados com sucesso!")
         
-        # ✅ NOVO: SALVAR A CONTA NO SESSION STATE PARA USO NO RELATÓRIO
+        #  SALVAR A CONTA NO SESSION STATE PARA USO NO RELATÓRIO
         st.session_state.conta_analisada = st.session_state.conta_selecionada
         st.info(f"📋 Conta selecionada para análise: **{st.session_state.conta_selecionada}**")
         
     else:
         st.success("✅ Dados carregados com sucesso! Visualização das informações:")
         
-        # ✅ NOVO: PARA SISTEMA SEM VALIDAÇÃO, TENTAR DETECTAR A CONTA
+        # PARA SISTEMA SEM VALIDAÇÃO, TENTAR DETECTAR A CONTA
         if 'conta_bancaria' in st.session_state.extrato_df.columns:
             contas_encontradas = st.session_state.extrato_df['conta_bancaria'].unique()
             if len(contas_encontradas) == 1:
@@ -1095,6 +1096,7 @@ if st.session_state.extrato_df is not None and st.session_state.contabil_df is n
         else:
             st.session_state.conta_analisada = "Não identificada"
             st.info("📋 Conta não identificada - use o sistema de validação para melhor precisão")
+    
     # Processamento automático sem configuração do usuário
     with st.spinner("Processando e padronizando dados automaticamente..."):
         try:
@@ -1141,13 +1143,16 @@ if st.session_state.extrato_df is not None and st.session_state.contabil_df is n
                 st.session_state.contabil_df, "Lançamentos Contábeis"
             )
             
+            def process_chunk(chunk):
+                return processor.processar_extrato(
+                    chunk, 
+                    col_data_extrato, 
+                    col_valor_extrato, 
+                    col_descricao_extrato
+             )
+
             # Processar extrato
-            extrato_processado = processor.processar_extrato(
-                st.session_state.extrato_df,
-                col_data_extrato,
-                col_valor_extrato,
-                col_descricao_extrato
-            )
+            extrato_processado = chunker.process_in_chunks(st.session_state.extrato_df, process_chunk)
             
             # Processar lançamentos contábeis
             contabil_processado = processor.processar_contabil(
