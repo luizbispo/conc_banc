@@ -8,6 +8,7 @@ import os
 import base64
 import modules.report_generator as report_gen
 import locale
+from difflib import SequenceMatcher
 
 try:
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
@@ -19,7 +20,6 @@ except locale.Error:
             locale.setlocale(locale.LC_TIME, 'Portuguese_Brazil')
         except locale.Error:
             print("Aviso: Não foi possível definir o locale para Português. Usando solução manual...")
-
 
 st.set_page_config(page_title="Relatório de Análise", page_icon="📄", layout="wide")
 
@@ -35,6 +35,139 @@ with st.sidebar:
 
 st.title("📄 Relatório de Análise de Correspondências")
 st.markdown("Gere o relatório completo com todas as correspondências identificadas e divergências")
+
+# --- NOVAS FUNÇÕES PARA TABELAS MELHORADAS ---
+def gerar_tabelas_divergencias_melhoradas(resultados_analise, extrato_df, contabil_df):
+    """
+    Gera tabelas de divergências mais explicativas e organizadas
+    """
+    # Identificar transações não matchadas
+    extrato_match_ids = set()
+    contabil_match_ids = set()
+    
+    for match in resultados_analise['matches']:
+        extrato_match_ids.update(match['ids_extrato'])
+        contabil_match_ids.update(match['ids_contabil'])
+    
+    # Tabela 1: Transações bancárias sem correspondência
+    extrato_nao_match = extrato_df[~extrato_df['id'].isin(extrato_match_ids)]
+    tabela_transacoes_sem_correspondencia = _criar_tabela_transacoes_sem_correspondencia(extrato_nao_match)
+    
+    # Tabela 2: Lançamentos contábeis sem correspondência
+    contabil_nao_match = contabil_df[~contabil_df['id'].isin(contabil_match_ids)]
+    tabela_lancamentos_sem_correspondencia = _criar_tabela_lancamentos_sem_correspondencia(contabil_nao_match)
+    
+    # Tabela 3: Possíveis correspondências por similaridade
+    tabela_similaridades = _criar_tabela_similaridades(extrato_nao_match, contabil_nao_match)
+    
+    return {
+        'transacoes_sem_correspondencia': tabela_transacoes_sem_correspondencia,
+        'lancamentos_sem_correspondencia': tabela_lancamentos_sem_correspondencia,
+        'possiveis_similaridades': tabela_similaridades
+    }
+
+def _criar_tabela_transacoes_sem_correspondencia(extrato_nao_match):
+    """Cria tabela para transações bancárias sem correspondência"""
+    tabela = []
+    
+    for _, transacao in extrato_nao_match.iterrows():
+        # Garantir que temos os dados corretos
+        data_str = transacao['data'].strftime('%d/%m/%Y') if hasattr(transacao['data'], 'strftime') else str(transacao.get('data', 'N/A'))
+        valor = transacao.get('valor_original', transacao.get('valor', 0))
+        descricao = transacao.get('descricao', 'Descrição não disponível')
+        
+        tabela.append({
+            'Data': data_str,
+            'Valor': f"R$ {valor:,.2f}",
+            'Descrição': descricao[:80] + "..." if len(descricao) > 80 else descricao,
+            'Origem': 'Extrato Bancário',
+            'Status': 'Não conciliado',
+            'Recomendação': 'Verificar se é despesa não lançada ou receita não identificada'
+        })
+    
+    return pd.DataFrame(tabela)
+
+def _criar_tabela_lancamentos_sem_correspondencia(contabil_nao_match):
+    """Cria tabela para lançamentos contábeis sem correspondência"""
+    tabela = []
+    
+    for _, lancamento in contabil_nao_match.iterrows():
+        # Garantir que temos os dados corretos
+        data_str = lancamento['data'].strftime('%d/%m/%Y') if hasattr(lancamento['data'], 'strftime') else str(lancamento.get('data', 'N/A'))
+        valor = lancamento.get('valor_original', lancamento.get('valor', 0))
+        descricao = lancamento.get('descricao', 'Descrição não disponível')
+        
+        tabela.append({
+            'Data': data_str,
+            'Valor': f"R$ {valor:,.2f}",
+            'Descrição': descricao[:80] + "..." if len(descricao) > 80 else descricao,
+            'Origem': 'Sistema Contábil',
+            'Status': 'Não conciliado',
+            'Recomendação': 'Verificar se é provisionamento, lançamento futuro ou erro'
+        })
+    
+    return pd.DataFrame(tabela)
+
+def _criar_tabela_similaridades(extrato_nao_match, contabil_nao_match):
+    """Identifica possíveis correspondências por similaridade"""
+    tabela = []
+    
+    # Analisar possíveis matches por similaridade de valor e data
+    for _, extrato_row in extrato_nao_match.iterrows():
+        valor_extrato = abs(extrato_row.get('valor_original', extrato_row.get('valor', 0)))
+        data_extrato = extrato_row.get('data', None)
+        
+        # Buscar lançamentos com valores similares (±10%) e datas próximas (±5 dias)
+        for _, contabil_row in contabil_nao_match.iterrows():
+            valor_contabil = abs(contabil_row.get('valor_original', contabil_row.get('valor', 0)))
+            data_contabil = contabil_row.get('data', None)
+            
+            # Calcular similaridade
+            if valor_extrato > 0:
+                diff_valor_percent = abs(valor_extrato - valor_contabil) / valor_extrato * 100
+            else:
+                diff_valor_percent = 100
+                
+            if hasattr(data_extrato, 'strftime') and hasattr(data_contabil, 'strftime'):
+                diff_dias = abs((data_extrato - data_contabil).days)
+            else:
+                diff_dias = 30
+            
+            if diff_valor_percent <= 10 and diff_dias <= 5:
+                similaridade = _calcular_similaridade_texto(
+                    extrato_row.get('descricao', ''),
+                    contabil_row.get('descricao', '')
+                )
+                
+                if similaridade >= 40:  # Similaridade mínima de 40%
+                    confianca_ajuste = (100 - diff_valor_percent) * (100 - diff_dias * 2) * similaridade / 10000
+                    
+                    data_extrato_str = data_extrato.strftime('%d/%m/%Y') if hasattr(data_extrato, 'strftime') else str(data_extrato)
+                    data_contabil_str = data_contabil.strftime('%d/%m/%Y') if hasattr(data_contabil, 'strftime') else str(data_contabil)
+                    
+                    tabela.append({
+                        'Similaridade': f"{similaridade:.1f}%",
+                        'Data_Bancário': data_extrato_str,
+                        'Data_Contábil': data_contabil_str,
+                        'Valor_Bancário': f"R$ {extrato_row.get('valor_original', extrato_row.get('valor', 0)):,.2f}",
+                        'Valor_Contábil': f"R$ {contabil_row.get('valor_original', contabil_row.get('valor', 0)):,.2f}",
+                        'Descrição_Bancário': extrato_row.get('descricao', '')[:50] + "..." if len(extrato_row.get('descricao', '')) > 50 else extrato_row.get('descricao', ''),
+                        'Descrição_Contábil': contabil_row.get('descricao', '')[:50] + "..." if len(contabil_row.get('descricao', '')) > 50 else contabil_row.get('descricao', ''),
+                        'Diferença_Valor': f"R$ {abs(extrato_row.get('valor_original', extrato_row.get('valor', 0)) - contabil_row.get('valor_original', contabil_row.get('valor', 0))):,.2f}",
+                        'Diferença_Dias': diff_dias,
+                        'Confiança': f"{confianca_ajuste:.1f}%",
+                        'Recomendação': 'Analisar possível correspondência manual'
+                    })
+    
+    return pd.DataFrame(tabela)
+
+def _calcular_similaridade_texto(texto1, texto2):
+    """Calcula similaridade entre textos"""
+    if not texto1 or not texto2:
+        return 0.0
+    return SequenceMatcher(None, texto1.lower(), texto2.lower()).ratio() * 100
+
+# --- FIM DAS NOVAS FUNÇÕES ---
 
 # Instruções
 with st.expander("Sobre este Relatório"):
@@ -210,87 +343,109 @@ with aba_correspondencias:
 
 with aba_divergencias:
     if resultados_analise.get('excecoes'):
-        st.markdown("**Divergências Identificadas**")
+        st.subheader("📊 Análise Detalhada das Divergências")
         
-        for excecao in resultados_analise['excecoes']:
-            with st.expander(f"{excecao['tipo']} - {excecao['severidade']}"):
-                st.write(f"**Descrição:** {excecao['descricao']}")
-                st.write(f"**Recomendação:** {excecao['acao_sugerida']}")
-                st.write(f"**Itens Envolvidos:** {len(excecao['ids_envolvidos'])}")
-    else:
-        st.success("✅ Nenhuma divergência crítica identificada")
-
-if resultados_analise.get('excecoes'):
-    st.markdown("---")
-    st.subheader("📊 Tabela de Divergências Detalhada")
-    
-    try:
-        # Criar tabela de divergências manualmente (mais confiável)
-        divergencias_detalhadas = []
+        # Gerar tabelas melhoradas
+        tabelas_divergencias = gerar_tabelas_divergencias_melhoradas(
+            resultados_analise, extrato_filtrado, contabil_filtrado
+        )
         
-        for excecao in resultados_analise['excecoes']:
-            if excecao['tipo'] == 'TRANSAÇÃO_SEM_CORRESPONDÊNCIA':
-                # Para transações sem correspondência
-                transacoes_divergentes = extrato_filtrado[extrato_filtrado['id'].isin(excecao['ids_envolvidos'])]
-                for _, transacao in transacoes_divergentes.iterrows():
-                    data_str = transacao['data'].strftime('%d/%m/%Y') if hasattr(transacao['data'], 'strftime') else str(transacao['data'])
-                    divergencias_detalhadas.append({
-                        'Tipo_Divergência': excecao['tipo'],
-                        'Severidade': excecao['severidade'],
-                        'Data': data_str,
-                        'Descrição': transacao.get('descricao', 'N/A'),
-                        'Valor': f"R$ {transacao['valor']:,.2f}",
-                        'Origem': 'Extrato Bancário',
-                        'Ação_Recomendada': excecao['acao_sugerida']
-                    })
-            
-            elif excecao['tipo'] == 'LANÇAMENTO_SEM_CORRESPONDÊNCIA':
-                # Para lançamentos sem correspondência
-                lancamentos_divergentes = contabil_filtrado[contabil_filtrado['id'].isin(excecao['ids_envolvidos'])]
-                for _, lancamento in lancamentos_divergentes.iterrows():
-                    data_str = lancamento['data'].strftime('%d/%m/%Y') if hasattr(lancamento['data'], 'strftime') else str(lancamento['data'])
-                    divergencias_detalhadas.append({
-                        'Tipo_Divergência': excecao['tipo'],
-                        'Severidade': excecao['severidade'],
-                        'Data': data_str,
-                        'Descrição': lancamento.get('descricao', 'N/A'),
-                        'Valor': f"R$ {lancamento['valor']:,.2f}",
-                        'Origem': 'Contábil',
-                        'Ação_Recomendada': excecao['acao_sugerida']
-                    })
-            else:
-                # Para outros tipos de divergência
-                divergencias_detalhadas.append({
-                    'Tipo_Divergência': excecao['tipo'],
-                    'Severidade': excecao['severidade'],
-                    'Data': 'Múltiplas',
-                    'Descrição': excecao['descricao'],
-                    'Valor': 'N/A',
-                    'Origem': 'Sistema',
-                    'Ação_Recomendada': excecao['acao_sugerida'],
-                    'Itens_Envolvidos': len(excecao['ids_envolvidos'])
-                })
-        
-        # Criar DataFrame e exibir
-        if divergencias_detalhadas:
-            df_divergencias_detalhadas = pd.DataFrame(divergencias_detalhadas)
-            st.dataframe(df_divergencias_detalhadas, width='stretch', hide_index=True)
-            
-            # Adicionar ao session state para uso no relatório
-            st.session_state['divergencias_tabela'] = df_divergencias_detalhadas
-            
-            # Botão para exportar
-            csv_divergencias = df_divergencias_detalhadas.to_csv(index=False, encoding='utf-8')
-            st.download_button(
-                label="📥 Exportar Divergências (CSV)",
-                data=csv_divergencias,
-                file_name=f"divergencias_detalhadas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
+        # Tabela 1: Transações Bancárias sem Correspondência
+        if not tabelas_divergencias['transacoes_sem_correspondencia'].empty:
+            st.markdown("### 🏦 Transações Bancárias sem Correspondência Contábil")
+            st.dataframe(
+                tabelas_divergencias['transacoes_sem_correspondencia'],
+                width='stretch',
+                hide_index=True
             )
             
-    except Exception as e:
-        st.error(f"Erro ao gerar tabela de divergências: {e}")
-        st.info("As divergências estão disponíveis no formato de relatório acima.")
+            # Estatísticas
+            total_valor = 0
+            for valor_str in tabelas_divergencias['transacoes_sem_correspondencia']['Valor']:
+                try:
+                    valor_clean = float(valor_str.replace('R$', '').replace('.', '').replace(',', '.').strip())
+                    total_valor += abs(valor_clean)
+                except:
+                    continue
+                    
+            st.info(f"**Total em divergência:** R$ {total_valor:,.2f} | **Itens:** {len(tabelas_divergencias['transacoes_sem_correspondencia'])}")
+            
+            # Botão de exportação
+            csv_transacoes = tabelas_divergencias['transacoes_sem_correspondencia'].to_csv(index=False)
+            st.download_button(
+                label="📥 Exportar Transações sem Correspondência",
+                data=csv_transacoes,
+                file_name="transacoes_bancarias_sem_correspondencia.csv",
+                mime="text/csv"
+            )
+        
+        # Tabela 2: Lançamentos Contábeis sem Correspondência
+        if not tabelas_divergencias['lancamentos_sem_correspondencia'].empty:
+            if not tabelas_divergencias['transacoes_sem_correspondencia'].empty:
+                st.divider()
+                
+            st.markdown("### 📊 Lançamentos Contábeis sem Movimentação Bancária")
+            st.dataframe(
+                tabelas_divergencias['lancamentos_sem_correspondencia'],
+                width='stretch',
+                hide_index=True
+            )
+            
+            # Estatísticas
+            total_valor = 0
+            for valor_str in tabelas_divergencias['lancamentos_sem_correspondencia']['Valor']:
+                try:
+                    valor_clean = float(valor_str.replace('R$', '').replace('.', '').replace(',', '.').strip())
+                    total_valor += abs(valor_clean)
+                except:
+                    continue
+                    
+            st.info(f"**Total em divergência:** R$ {total_valor:,.2f} | **Itens:** {len(tabelas_divergencias['lancamentos_sem_correspondencia'])}")
+            
+            # Botão de exportação
+            csv_lancamentos = tabelas_divergencias['lancamentos_sem_correspondencia'].to_csv(index=False)
+            st.download_button(
+                label="📥 Exportar Lançamentos sem Correspondência",
+                data=csv_lancamentos,
+                file_name="lancamentos_contabeis_sem_correspondencia.csv",
+                mime="text/csv"
+            )
+        
+        # Tabela 3: Possíveis Similaridades
+        if not tabelas_divergencias['possiveis_similaridades'].empty:
+            if not tabelas_divergencias['transacoes_sem_correspondencia'].empty or not tabelas_divergencias['lancamentos_sem_correspondencia'].empty:
+                st.divider()
+                
+            st.markdown("### 🔍 Possíveis Correspondências por Similaridade")
+            st.dataframe(
+                tabelas_divergencias['possiveis_similaridades'],
+                width='stretch',
+                hide_index=True
+            )
+            
+            st.info(f"**{len(tabelas_divergencias['possiveis_similaridades'])} possíveis correspondências identificadas**")
+            st.warning("💡 **Recomendação:** Analisar estas correspondências manualmente - podem ser matches válidos que o sistema não identificou com confiança suficiente")
+            
+            # Botão de exportação
+            csv_similaridades = tabelas_divergencias['possiveis_similaridades'].to_csv(index=False)
+            st.download_button(
+                label="📥 Exportar Possíveis Correspondências",
+                data=csv_similaridades,
+                file_name="possiveis_correspondencias_similaridade.csv",
+                mime="text/csv"
+            )
+        
+        # Verificar se não há nenhuma divergência
+        if (tabelas_divergencias['transacoes_sem_correspondencia'].empty and 
+            tabelas_divergencias['lancamentos_sem_correspondencia'].empty and 
+            tabelas_divergencias['possiveis_similaridades'].empty):
+            st.success("✅ Nenhuma divergência identificada")
+        
+        # Salvar no session state para uso no relatório PDF
+        st.session_state['tabelas_divergencias_melhoradas'] = tabelas_divergencias
+        
+    else:
+        st.success("✅ Nenhuma divergência crítica identificada")
 
 # Geração do PDF
 st.divider()
@@ -300,6 +455,12 @@ col_gerar1, col_gerar2 = st.columns([2, 1])
 
 with col_gerar1:
     st.subheader("Configurações Finais")
+    
+    # MOSTRAR INFORMAÇÃO DA CONTA ANALISADA
+    if 'conta_analisada' in st.session_state and st.session_state.conta_analisada:
+        st.info(f"📋 **Conta analisada:** {st.session_state.conta_analisada}")
+    else:
+        st.warning("⚠️ **Conta não identificada** - Use o sistema de validação na importação")
     
     observacoes = st.text_area(
         "Observações e Contexto para o Relatório:",
@@ -312,27 +473,6 @@ with col_gerar1:
         ["Completo", "Resumido"],
         help="Completo: Inclui todos os detalhes e tabelas completas | Resumido: Apenas sumário executivo e estatísticas principais"
     )
-    
-    # Mostrar diferenças entre os formatos
-    with st.expander("📋 Diferenças entre os Formatos"):
-        st.markdown("""
-        **📄 Relatório COMPLETO:**
-        - Capa e sumário executivo
-        - Estatísticas detalhadas
-        - Tabela completa de correspondências
-        - Detalhes das principais correspondências
-        - Análise completa de divergências
-        - Tabela detalhada de divergências
-        - Recomendações e próximos passos
-        - Assinatura do contador
-        
-        **📊 Relatório RESUMIDO:**
-        - Capa e sumário executivo
-        - Estatísticas principais apenas
-        - Lista resumida de correspondências
-        - Resumo das divergências críticas
-        - Recomendações principais
-        """)
 
 with col_gerar2:
     st.subheader("Gerar PDF")
@@ -340,15 +480,20 @@ with col_gerar2:
     if st.button("🔄 Gerar Relatório de Análise", type="primary", width='stretch', key="btn_gerar_relatorio_analise"):
         with st.spinner("Gerando relatório PDF..."):
             try:
-                # Obter a tabela de divergências se existir
+                # Obter as tabelas de divergências melhoradas se existirem
                 divergencias_tabela = None
-                if 'divergencias_tabela' in st.session_state:
-                    divergencias_tabela = st.session_state['divergencias_tabela']
-                    st.info(f"📊 Incluindo tabela com {len(divergencias_tabela)} divergências detalhadas")
-                else:
-                    st.info("ℹ️ Gerando relatório sem tabela de divergências detalhada")
+                if 'tabelas_divergencias_melhoradas' in st.session_state:
+                    todas_divergencias = pd.concat([
+                        st.session_state['tabelas_divergencias_melhoradas']['transacoes_sem_correspondencia'],
+                        st.session_state['tabelas_divergencias_melhoradas']['lancamentos_sem_correspondencia'],
+                        st.session_state['tabelas_divergencias_melhoradas']['possiveis_similaridades']
+                    ], ignore_index=True)
+                    divergencias_tabela = todas_divergencias
                 
-                # Usar a função correta com todos os parâmetros
+                # OBTER A CONTA ANALISADA DO SESSION STATE
+                conta_analisada = st.session_state.get('conta_analisada', 'Não identificada')
+                
+                # PASSAR A CONTA PARA A FUNÇÃO DE GERAR RELATÓRIO
                 pdf_path = report_gen.gerar_relatorio_analise(
                     resultados_analise=resultados_analise,
                     extrato_df=extrato_filtrado,
@@ -358,7 +503,8 @@ with col_gerar2:
                     periodo=periodo_relatorio,
                     observacoes=observacoes,
                     formato=formato_relatorio.lower(),
-                    divergencias_tabela=divergencias_tabela  
+                    divergencias_tabela=divergencias_tabela,
+                    conta_analisada=conta_analisada  # ✅ NOVO PARÂMETRO
                 )
                 
                 # Verificar se o pdf_path é válido
@@ -382,11 +528,12 @@ with col_gerar2:
                 
                 # Criar download link
                 b64_pdf = base64.b64encode(pdf_bytes).decode()
-                nome_arquivo = f"relatorio_{formato_relatorio.lower()}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+                nome_arquivo = f"relatorio_{formato_relatorio.lower()}_{conta_analisada}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
                 href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{nome_arquivo}" style="background-color: #4CAF50; color: white; padding: 14px 20px; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; font-size: 16px;">📥 Baixar Relatório {formato_relatorio}</a>'
                 
                 st.markdown(href, unsafe_allow_html=True)
                 st.success(f"✅ Relatório {formato_relatorio} gerado com sucesso!")
+                st.info(f"📋 Conta incluída no relatório: **{conta_analisada}**")
                 
                 # Pré-visualização embutida
                 st.subheader("👁️ Pré-visualização do PDF")
@@ -396,10 +543,6 @@ with col_gerar2:
                 
             except Exception as e:
                 st.error(f"❌ Erro ao gerar relatório: {str(e)}")
-                # Debug adicional
-                st.code(f"Tipo do erro: {type(e).__name__}")
-                import traceback
-                st.code(traceback.format_exc())
 
 # Navegação
 st.divider()
@@ -414,7 +557,7 @@ with col_acao1:
 with col_acao2:
     if st.button("🔄 Nova Importação", key="btn_nova_importacao"):
         # Limpar session state para nova análise
-        keys_to_clear = ['resultados_analise', 'extrato_filtrado', 'contabil_filtrado']
+        keys_to_clear = ['resultados_analise', 'extrato_filtrado', 'contabil_filtrado', 'tabelas_divergencias_melhoradas']
         for key in keys_to_clear:
             if key in st.session_state:
                 del st.session_state[key]
@@ -423,4 +566,3 @@ with col_acao2:
 with col_acao3:
     if st.button("🏠 Início", key="btn_inicio"):
         st.switch_page("app.py")
-

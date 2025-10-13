@@ -4,7 +4,7 @@ Projeto para um sistema para análise e conciliação de extratos bancários com
 
 ## 🚀 Funcionalidades
 
-- **📥 Importação Multi-formatos**: OFX, CSV, CNAB 240/400, PDF
+- **📥 Importação Multi-formatos**: OFX, CSV, PDF
 - **🔍 Análise Inteligente**: Matching em 3 camadas (Exato → Heurístico → IA)
 - **📋 Revisão Assistida**: Interface para validação do contador
 - **📄 Relatórios PDF**: Documentação profissional para auditoria

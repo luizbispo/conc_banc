@@ -37,11 +37,8 @@ class PDFReport(FPDF):
         self.ln()
     
     def clean_text(self, text):
-        if not text:
-            return ""
-        
+        if not text: return ""
         text = str(text)
-        
         replacements = {
             '✅': '[OK]', '✔': '[OK]', '✓': '[OK]', '☑': '[OK]',
             '❌': '[ERRO]', '✖': '[ERRO]', '❎': '[ERRO]',
@@ -51,17 +48,13 @@ class PDFReport(FPDF):
             '•': '-', '·': '-', '–': '-', '—': '-', '‣': '-', '⁃': '-',
             '“': '"', '”': '"', '‘': "'", '’': "'", '´': "'", '`': "'",
         }
-        
         for old_char, new_char in replacements.items():
             text = text.replace(old_char, new_char)
-        
         try:
             text = text.encode('latin-1', 'replace').decode('latin-1')
-        except:
-            pass
-        
+        except: pass
         return text
-    
+
 def gerar_relatorio_analise(resultados_analise: Dict,
                           extrato_df: pd.DataFrame,
                           contabil_df: pd.DataFrame,
@@ -71,10 +64,12 @@ def gerar_relatorio_analise(resultados_analise: Dict,
                           observacoes: str = "",
                           formato: str = "completo",
                           divergencias_tabela: pd.DataFrame = None,
+                          conta_analisada: str = None,  # ✅ NOVO PARÂMETRO
                           **kwargs) -> str:
     """
     Gera relatório de análise (não de conciliação)
     formato: 'completo' ou 'resumido'
+    conta_analisada: Número da conta bancária analisada ✅ NOVO
     """
     pdf = PDFReport()
     
@@ -84,6 +79,12 @@ def gerar_relatorio_analise(resultados_analise: Dict,
     pdf.cell(0, 40, 'RELATÓRIO DE ANÁLISE DE CORRESPONDÊNCIAS', 0, 1, 'C')
     pdf.set_font('Arial', 'B', 16)
     pdf.cell(0, 20, pdf.clean_text(empresa_nome), 0, 1, 'C')
+    
+    # ✅ NOVO: INCLUIR INFORMAÇÃO DA CONTA NA CAPA
+    pdf.set_font('Arial', 'B', 14)
+    if conta_analisada and conta_analisada != "Não identificada":
+        pdf.cell(0, 10, f'Conta Analisada: {conta_analisada}', 0, 1, 'C')
+    
     pdf.set_font('Arial', '', 12)
     pdf.cell(0, 10, f'Período: {periodo}', 0, 1, 'C')
     pdf.cell(0, 10, f'Analista: {pdf.clean_text(contador_nome)}', 0, 1, 'C')
@@ -91,7 +92,7 @@ def gerar_relatorio_analise(resultados_analise: Dict,
     pdf.cell(0, 10, f'Formato: {formato.upper()}', 0, 1, 'C')
     
     pdf.ln(20)
-    
+    pdf.add_page()
     # Sumário Executivo (comum para ambos os formatos)
     pdf.chapter_title('RELATÓRIO DE ANÁLISE - CORRESPONDÊNCIAS IDENTIFICADAS')
     
@@ -100,8 +101,11 @@ def gerar_relatorio_analise(resultados_analise: Dict,
     total_extrato = len(extrato_df)
     total_contabil = len(contabil_df)
     
+    # ✅ NOVO: INCLUIR CONTA NO SUMÁRIO EXECUTIVO
     resumo_texto = f"""
     ESTE É UM RELATÓRIO DE ANÁLISE E IDENTIFICAÇÃO DE CORRESPONDÊNCIAS
+    
+    CONTA ANALISADA: {conta_analisada if conta_analisada else "Não especificada"}
     
     OBJETIVO:
     Identificar automaticamente relações entre transações bancárias e lançamentos contábeis
@@ -132,6 +136,11 @@ def gerar_relatorio_analise(resultados_analise: Dict,
     # Página 2: Estatísticas (comum para ambos os formatos)
     pdf.add_page()
     pdf.chapter_title('ESTATÍSTICAS DETALHADAS')
+    
+    # ✅ NOVO: INCLUIR CONTA NAS ESTATÍSTICAS
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, f'CONTA: {conta_analisada if conta_analisada else "Não especificada"}', 0, 1)
+    pdf.set_font('Arial', '', 10)
     
     # Métricas principais
     pdf.set_font('Arial', 'B', 12)
@@ -176,8 +185,8 @@ def gerar_relatorio_analise(resultados_analise: Dict,
             pdf.add_page()
             pdf.chapter_title('CORRESPONDÊNCIAS IDENTIFICADAS - DETALHES COMPLETOS')
             
-            headers = ['ID', 'Tipo', 'Camada', 'Confiança', 'Valor Total', 'Trans Bank', 'Lanc Cont']
-            col_widths = [10, 20, 25, 20, 30, 20, 20]
+            headers = ['ID', 'Tipo', 'Camada', 'Confiança', 'Valor Total', 'Transação Bancária', 'Lançamento Contábil']
+            col_widths = [10, 20, 25, 20, 30, 30, 30]
             
             pdf.set_font('Arial', 'B', 8)
             for i, header in enumerate(headers):
@@ -255,8 +264,8 @@ def gerar_relatorio_analise(resultados_analise: Dict,
                     pdf.multi_cell(0, 4, f'   {pdf.clean_text(match["explicacao"][:100])}...')
                     pdf.ln(2)
     
-    # Página de Divergências (comum mas com detalhamento diferente)
-    if resultados_analise.get('excecoes'):
+    # Página de Divergências - NOVA VERSÃO MELHORADA
+    if divergencias_tabela is not None and not divergencias_tabela.empty:
         pdf.add_page()
         
         if formato == 'completo':
@@ -264,66 +273,97 @@ def gerar_relatorio_analise(resultados_analise: Dict,
         else:
             pdf.chapter_title('DIVERGÊNCIAS IDENTIFICADAS - RESUMO')
         
-        for i, excecao in enumerate(resultados_analise['excecoes']):
-            pdf.set_font('Arial', 'B', 10)
-            pdf.cell(0, 8, f'Divergência {i + 1}: {excecao["tipo"]} - {excecao["severidade"]}', 0, 1)
-            pdf.set_font('Arial', '', 9)
-            pdf.multi_cell(0, 5, f'Descrição: {pdf.clean_text(excecao["descricao"])}')
-            pdf.multi_cell(0, 5, f'Recomendação: {pdf.clean_text(excecao["acao_sugerida"])}')
-            pdf.multi_cell(0, 5, f'Itens envolvidos: {len(excecao["ids_envolvidos"])}')
-            pdf.ln(5)
-    
-    # Tabela de Divergências Detalhadas (APENAS NO COMPLETO)
-    if formato == 'completo' and divergencias_tabela is not None and not divergencias_tabela.empty:
-        try:
-            pdf.add_page()
-            pdf.chapter_title('TABELA DETALHADA DE DIVERGÊNCIAS')
+        # Separar as divergências por tipo
+        transacoes_sem_correspondencia = divergencias_tabela[
+            divergencias_tabela['Origem'] == 'Extrato Bancário'
+        ] if 'Origem' in divergencias_tabela.columns else pd.DataFrame()
+        
+        lancamentos_sem_correspondencia = divergencias_tabela[
+            divergencias_tabela['Origem'] == 'Sistema Contábil'
+        ] if 'Origem' in divergencias_tabela.columns else pd.DataFrame()
+        
+        similaridades = divergencias_tabela[
+            divergencias_tabela['Similaridade'].notna()
+        ] if 'Similaridade' in divergencias_tabela.columns else pd.DataFrame()
+        
+        # Tabela 1: Transações Bancárias sem Correspondência
+        if not transacoes_sem_correspondencia.empty:
+            pdf.set_font('Arial', 'B', 12)
+            pdf.cell(0, 10, 'TRANSAÇÕES BANCÁRIAS SEM CORRESPONDÊNCIA:', 0, 1)
             
-            headers = ['Tipo', 'Severidade', 'Data', 'Descrição', 'Valor', 'Origem']
-            col_widths = [15, 20, 20, 60, 25, 20]
+            headers = ['Data', 'Valor', 'Descrição', 'Status']
+            col_widths = [25, 25, 80, 30]
             
             pdf.set_font('Arial', 'B', 8)
             for i, header in enumerate(headers):
                 pdf.cell(col_widths[i], 8, header, 1, 0, 'C')
             pdf.ln()
             
-            def abreviar_tipo_divergencia(tipo_original):
-                abreviacoes = {
-                    'TRANSAÇÃO_SEM_CORRESPONDÊNCIA': 'TSC',
-                    'LANÇAMENTO_SEM_CORRESPONDÊNCIA': 'LSC',
-                    'TRANSAÇÃO_SEM_CORRESPONDENCIA': 'TSC',
-                    'LANÇAMENTO_SEM_CORRESPONDENCIA': 'LSC'
-                }
-                return abreviacoes.get(tipo_original, tipo_original)
-            
             pdf.set_font('Arial', '', 7)
-            for _, row in divergencias_tabela.iterrows():
-                descricao = str(row.get('Descrição', row.get('descricao', '')))[:50] + "..." if len(str(row.get('Descrição', row.get('descricao', '')))) > 50 else str(row.get('Descrição', row.get('descricao', '')))
-                
-                tipo_original = str(row.get('Tipo_Divergência', row.get('Tipo', '')))
-                tipo = abreviar_tipo_divergencia(tipo_original)
-                
-                severidade = str(row.get('Severidade', ''))
-                data = str(row.get('Data', ''))
-                valor = str(row.get('Valor', ''))
-                origem = str(row.get('Origem', ''))
-                
-                pdf.cell(col_widths[0], 6, pdf.clean_text(tipo), 1, 0, 'C')
-                pdf.cell(col_widths[1], 6, pdf.clean_text(severidade), 1, 0, 'C')
-                pdf.cell(col_widths[2], 6, pdf.clean_text(data), 1, 0, 'C')
-                pdf.cell(col_widths[3], 6, pdf.clean_text(descricao), 1, 0, 'L')
-                pdf.cell(col_widths[4], 6, pdf.clean_text(valor), 1, 0, 'C')
-                pdf.cell(col_widths[5], 6, pdf.clean_text(origem), 1, 0, 'C')
+            for _, row in transacoes_sem_correspondencia.head(20).iterrows():  # Limitar a 20 itens
+                pdf.cell(col_widths[0], 6, str(row.get('Data', '')), 1, 0, 'C')
+                pdf.cell(col_widths[1], 6, str(row.get('Valor', '')), 1, 0, 'C')
+                pdf.cell(col_widths[2], 6, pdf.clean_text(str(row.get('Descrição', ''))[:40]), 1, 0, 'L')
+                pdf.cell(col_widths[3], 6, str(row.get('Status', '')), 1, 0, 'C')
                 pdf.ln()
             
             pdf.ln(5)
             pdf.set_font('Arial', 'I', 8)
-            pdf.cell(0, 6, f'Total de divergências detalhadas: {len(divergencias_tabela)}', 0, 1)
+            pdf.cell(0, 6, f'Total de transações sem correspondência: {len(transacoes_sem_correspondencia)}', 0, 1)
+            pdf.ln(5)
+        
+        # Tabela 2: Lançamentos Contábeis sem Correspondência
+        if not lancamentos_sem_correspondencia.empty:
+            pdf.set_font('Arial', 'B', 12)
+            pdf.cell(0, 10, 'LANÇAMENTOS CONTÁBEIS SEM MOVIMENTAÇÃO BANCÁRIA:', 0, 1)
             
-        except Exception as e:
-            print(f"⚠️ Aviso: Não foi possível adicionar tabela de divergências: {e}")
+            headers = ['Data', 'Valor', 'Descrição', 'Status']
+            col_widths = [25, 25, 80, 30]
+            
+            pdf.set_font('Arial', 'B', 8)
+            for i, header in enumerate(headers):
+                pdf.cell(col_widths[i], 8, header, 1, 0, 'C')
+            pdf.ln()
+            
+            pdf.set_font('Arial', '', 7)
+            for _, row in lancamentos_sem_correspondencia.head(20).iterrows():  # Limitar a 20 itens
+                pdf.cell(col_widths[0], 6, str(row.get('Data', '')), 1, 0, 'C')
+                pdf.cell(col_widths[1], 6, str(row.get('Valor', '')), 1, 0, 'C')
+                pdf.cell(col_widths[2], 6, pdf.clean_text(str(row.get('Descrição', ''))[:40]), 1, 0, 'L')
+                pdf.cell(col_widths[3], 6, str(row.get('Status', '')), 1, 0, 'C')
+                pdf.ln()
+            
+            pdf.ln(5)
+            pdf.set_font('Arial', 'I', 8)
+            pdf.cell(0, 6, f'Total de lançamentos sem correspondência: {len(lancamentos_sem_correspondencia)}', 0, 1)
+            pdf.ln(5)
+        
+        # Tabela 3: Similaridades
+        if not similaridades.empty:
+            pdf.set_font('Arial', 'B', 12)
+            pdf.cell(0, 10, 'POSSÍVEIS CORRESPONDÊNCIAS POR SIMILARIDADE:', 0, 1)
+            
+            headers = ['Similaridade', 'Valor Bancário', 'Valor Contábil', 'Diferença']
+            col_widths = [25, 30, 30, 25]
+            
+            pdf.set_font('Arial', 'B', 8)
+            for i, header in enumerate(headers):
+                pdf.cell(col_widths[i], 8, header, 1, 0, 'C')
+            pdf.ln()
+            
+            pdf.set_font('Arial', '', 7)
+            for _, row in similaridades.head(15).iterrows():  # Limitar a 15 itens
+                pdf.cell(col_widths[0], 6, str(row.get('Similaridade', '')), 1, 0, 'C')
+                pdf.cell(col_widths[1], 6, str(row.get('Valor_Bancário', '')), 1, 0, 'C')
+                pdf.cell(col_widths[2], 6, str(row.get('Valor_Contábil', '')), 1, 0, 'C')
+                pdf.cell(col_widths[3], 6, str(row.get('Diferença_Valor', '')), 1, 0, 'C')
+                pdf.ln()
+            
+            pdf.ln(5)
+            pdf.set_font('Arial', 'I', 8)
+            pdf.cell(0, 6, f'Total de possíveis correspondências: {len(similaridades)}', 0, 1)
     
-    # Página final: Recomendações (comum para ambos)
+    # Página: Recomendações (comum para ambos)
     pdf.add_page()
     pdf.chapter_title('RECOMENDAÇÕES E PRÓXIMOS PASSOS')
     
@@ -337,8 +377,8 @@ def gerar_relatorio_analise(resultados_analise: Dict,
            - Validar valores e datas
         
         2. INVESTIGAR DIVERGÊNCIAS
-           - Analisar transações sem correspondência (TSC)
-           - Verificar lançamentos sem movimento bancário (LSC)
+           - Analisar transações sem correspondência
+           - Verificar lançamentos sem movimento bancário
            - Identificar possíveis erros de lançamento
         
         3. AJUSTES NECESSÁRIOS
@@ -377,7 +417,29 @@ def gerar_relatorio_analise(resultados_analise: Dict,
     """
     
     pdf.chapter_body(recomendacoes_texto)
+
+   # Na página final: Incluir conta nas informações de auditoria
     pdf.add_page()
+    pdf.chapter_title('INFORMAÇÕES DE AUDITORIA')
+    
+    auditoria_texto = f"""
+    INFORMAÇÕES PARA AUDITORIA:
+    
+    - Conta analisada: {conta_analisada if conta_analisada else "Não especificada"}
+    - Empresa: {empresa_nome}
+    - Período: {periodo}
+    - Analista: {contador_nome}
+    - Data de geração: {datetime.now().strftime("%d/%m/%Y %H:%M")}
+    - Total de transações: {total_extrato}
+    - Total de lançamentos: {total_contabil}
+    - Correspondências identificadas: {total_matches}
+    - Divergências: {total_excecoes}
+    
+    Este relatório foi gerado automaticamente pelo Sistema de Conciliação Bancária e deve ser arquivado junto
+    com a documentação contábil do período.
+    """
+    
+    pdf.chapter_body(auditoria_texto)
     
     # Assinatura
     pdf.ln(15)
@@ -394,17 +456,17 @@ def gerar_relatorio_analise(resultados_analise: Dict,
         pdf.output(pdf_path)
         return pdf_path
     except Exception as e:
-        print(f"Erro ao salvar PDF: {e}")
         pdf_path_fallback = os.path.join(temp_dir, f'relatorio_analise_fallback_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
         pdf.output(pdf_path_fallback)
         return pdf_path_fallback
 
 def _abreviar_tipo_divergencia(self, tipo_original):
-    """Abrevia tipos longos de divergência para melhor visualização na tabela"""
+    """Abrevia tipos longos de divergência para melhor visualização na tabela - TERMINOLOGIA MELHORADA"""
     abreviacoes = {
-        'TRANSAÇÃO_SEM_CORRESPONDÊNCIA': 'TSC',
-        'LANÇAMENTO_SEM_CORRESPONDÊNCIA': 'LSC',
-        'TRANSAÇÃO_SEM_CORRESPONDENCIA': 'TSC',  # Fallback sem acento
-        'LANÇAMENTO_SEM_CORRESPONDENCIA': 'LSC'  # Fallback sem acento
+        'MOVIMENTAÇÃO_BANCÁRIA_SEM_LANÇAMENTO': 'Mov. Bancária s/Lançamento',
+        'LANÇAMENTO_CONTÁBIL_SEM_MOVIMENTAÇÃO': 'Lançamento s/Mov. Bancária',
+        'DIFERENÇA_DE_SALDO': 'Dif. Saldo',
+        'TRANSAÇÃO_SEM_CORRESPONDÊNCIA': 'Transação s/Correspondência',
+        'LANÇAMENTO_SEM_CORRESPONDÊNCIA': 'Lançamento s/Correspondência'
     }
     return abreviacoes.get(tipo_original, tipo_original)

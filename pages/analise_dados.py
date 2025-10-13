@@ -5,6 +5,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import tempfile
 import modules.data_analyzer as analyzer
+from difflib import SequenceMatcher
 
 st.set_page_config(page_title="Análise de Correspondências", page_icon="🔍", layout="wide")
 
@@ -17,6 +18,125 @@ with st.sidebar:
     st.page_link("pages/analise_dados.py", label="📊 Análise de Divergências", icon=None)
     st.page_link("pages/gerar_relatorio.py", label="📝 Relatório Final", icon=None)
 # --- Fim do Menu Customizado ---
+
+# --- FUNÇÕES PARA TABELAS MELHORADAS ---
+def gerar_tabelas_divergencias_melhoradas(resultados_analise, extrato_df, contabil_df):
+    """
+    Gera tabelas de divergências mais explicativas e organizadas
+    """
+    # Identificar transações não matchadas
+    extrato_match_ids = set()
+    contabil_match_ids = set()
+    
+    for match in resultados_analise['matches']:
+        extrato_match_ids.update(match['ids_extrato'])
+        contabil_match_ids.update(match['ids_contabil'])
+    
+    # Tabela 1: Presente no bancário mas não no contábil
+    extrato_nao_match = extrato_df[~extrato_df['id'].isin(extrato_match_ids)]
+    tabela_bancario_sem_contabil = _criar_tabela_bancario_sem_contabil(extrato_nao_match)
+    
+    # Tabela 2: Presente no contábil mas não no bancário
+    contabil_nao_match = contabil_df[~contabil_df['id'].isin(contabil_match_ids)]
+    tabela_contabil_sem_bancario = _criar_tabela_contabil_sem_bancario(contabil_nao_match)
+    
+    # Tabela 3: Possíveis correspondências por similaridade
+    tabela_similaridades = _criar_tabela_similaridades(extrato_nao_match, contabil_nao_match)
+    
+    return {
+        'bancario_sem_contabil': tabela_bancario_sem_contabil,
+        'contabil_sem_bancario': tabela_contabil_sem_bancario,
+        'possiveis_similaridades': tabela_similaridades
+    }
+
+def _criar_tabela_bancario_sem_contabil(extrato_nao_match):
+    """Cria tabela para valores presentes no bancário mas não no contábil - TERMINOLOGIA MELHORADA"""
+    tabela = []
+    
+    for _, transacao in extrato_nao_match.iterrows():
+        data_str = transacao['data'].strftime('%d/%m/%Y') if hasattr(transacao['data'], 'strftime') else str(transacao['data'])
+        
+        tabela.append({
+            'Tipo_Divergência': '🔴 Mov. Bancária sem Lançamento',
+            'Data': data_str,
+            'Valor_Bancário': f"R$ {transacao['valor']:,.2f}",
+            'Descrição_Bancário': transacao.get('descricao', 'N/A'),
+            'Origem': '🏦 Extrato Bancário',
+            'Status': 'Não conciliado',
+            'Recomendação': 'Verificar se é despesa não lançada, receita não identificada ou lançamento em período diferente',
+            'Ação_Sugerida': 'Incluir no sistema contábil ou identificar natureza da transação'
+        })
+    
+    return pd.DataFrame(tabela)
+
+def _criar_tabela_contabil_sem_bancario(contabil_nao_match):
+    """Cria tabela para valores presentes no contábil mas não no bancário - TERMINOLOGIA MELHORADA"""
+    tabela = []
+    
+    for _, lancamento in contabil_nao_match.iterrows():
+        data_str = lancamento['data'].strftime('%d/%m/%Y') if hasattr(lancamento['data'], 'strftime') else str(lancamento['data'])
+        
+        tabela.append({
+            'Tipo_Divergência': '🔴 Lançamento sem Mov. Bancária',
+            'Data': data_str,
+            'Valor_Contábil': f"R$ {lancamento['valor']:,.2f}",
+            'Descrição_Contábil': lancamento.get('descricao', 'N/A'),
+            'Origem': '📊 Sistema Contábil',
+            'Status': 'Não conciliado',
+            'Recomendação': 'Verificar se é provisionamento, lançamento futuro, ajuste contábil ou erro de lançamento',
+            'Ação_Sugerida': 'Aguardar compensação, corrigir lançamento ou verificar periodicidade'
+        })
+    
+    return pd.DataFrame(tabela)
+
+def _criar_tabela_similaridades(extrato_nao_match, contabil_nao_match):
+    """Identifica possíveis correspondências por similaridade - TERMINOLOGIA MELHORADA"""
+    tabela = []
+    
+    for _, extrato_row in extrato_nao_match.iterrows():
+        valor_extrato = abs(extrato_row['valor'])
+        data_extrato = extrato_row['data']
+        
+        for _, contabil_row in contabil_nao_match.iterrows():
+            valor_contabil = abs(contabil_row['valor'])
+            data_contabil = contabil_row['data']
+            
+            diff_valor_percent = abs(valor_extrato - valor_contabil) / valor_extrato * 100 if valor_extrato > 0 else 100
+            diff_dias = abs((data_extrato - data_contabil).days) if hasattr(data_extrato, 'strftime') and hasattr(data_contabil, 'strftime') else 30
+            
+            if diff_valor_percent <= 10 and diff_dias <= 5:
+                similaridade = _calcular_similaridade_texto(
+                    extrato_row.get('descricao', ''),
+                    contabil_row.get('descricao', '')
+                )
+                
+                if similaridade >= 40:
+                    confianca_ajuste = (100 - diff_valor_percent) * (100 - diff_dias * 2) * similaridade / 10000
+                    
+                    tabela.append({
+                        'Tipo_Analise': '🟡 Possível Correspondência',
+                        'Similaridade_Detectada': f"{similaridade:.1f}%",
+                        'Data_Bancário': data_extrato.strftime('%d/%m/%Y') if hasattr(data_extrato, 'strftime') else str(data_extrato),
+                        'Data_Contábil': data_contabil.strftime('%d/%m/%Y') if hasattr(data_contabil, 'strftime') else str(data_contabil),
+                        'Valor_Bancário': f"R$ {extrato_row['valor']:,.2f}",
+                        'Valor_Contábil': f"R$ {contabil_row['valor']:,.2f}",
+                        'Descrição_Bancário': extrato_row.get('descricao', '')[:50] + "..." if len(extrato_row.get('descricao', '')) > 50 else extrato_row.get('descricao', ''),
+                        'Descrição_Contábil': contabil_row.get('descricao', '')[:50] + "..." if len(contabil_row.get('descricao', '')) > 50 else contabil_row.get('descricao', ''),
+                        'Diferença_Valor': f"R$ {abs(extrato_row['valor'] - contabil_row['valor']):,.2f}",
+                        'Diferença_Dias': diff_dias,
+                        'Confiança_Ajuste': f"{confianca_ajuste:.1f}%",
+                        'Recomendação': 'Analisar manualmente - possível correspondência que precisa de validação'
+                    })
+    
+    return pd.DataFrame(tabela)
+
+def _calcular_similaridade_texto(texto1, texto2):
+    """Calcula similaridade entre textos"""
+    if not texto1 or not texto2:
+        return 0.0
+    return SequenceMatcher(None, texto1.lower(), texto2.lower()).ratio() * 100
+
+# --- FIM DAS FUNÇÕES PARA TABELAS MELHORADAS ---
 
 st.title("🔍 Análise de Correspondências Bancárias")
 st.markdown("Identifique automaticamente as correspondências entre extrato bancário e lançamentos contábeis")
@@ -238,72 +358,43 @@ st.header("Executar Análise")
 
 if st.button("Executar Análise de Correspondências", type="primary", width='stretch'):
     
-    # Barra de progresso
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     try:
-        status_text.text("📊 Preparando dados para análise...")
-        progress_bar.progress(10)
+        status_text.text("Preparando dados...")
+        progress_bar.progress(20)
         
-        # Aplicar filtro de valor mínimo se configurado
+        # Aplicar filtros (código existente)
         if valor_minimo > 0:
             extrato_filtrado = extrato_df[extrato_df['valor_matching'] >= valor_minimo].copy()
             contabil_filtrado = contabil_df[contabil_df['valor_matching'] >= valor_minimo].copy()
-            status_text.text(f"✅ Filtro aplicado: {len(extrato_filtrado)} transações x {len(contabil_filtrado)} lançamentos")
-        else:
-            extrato_filtrado = extrato_df.copy()
-            contabil_filtrado = contabil_df.copy()
         
-        # Aplicar filtro de mês corrente se configurado
-        if analisar_apenas_mes_corrente:
-            try:
-                mes_atual = datetime.now().month
-                extrato_filtrado = extrato_filtrado[extrato_filtrado['data'].dt.month == mes_atual]
-                contabil_filtrado = contabil_filtrado[contabil_filtrado['data'].dt.month == mes_atual]
-                status_text.text(f"📅 Filtro de mês aplicado: {len(extrato_filtrado)} transações x {len(contabil_filtrado)} lançamentos")
-            except Exception as e:
-                st.warning(f"⚠️ Não foi possível aplicar filtro de mês: {e}")
+        progress_bar.progress(40)
+        status_text.text("Executando análise...")
         
-        progress_bar.progress(30)
-        
-        # Verificar se há dados após os filtros
-        if len(extrato_filtrado) == 0 or len(contabil_filtrado) == 0:
-            st.error("❌ Não há dados suficientes para análise após aplicar os filtros.")
-            st.info("💡 Ajuste os filtros de valor mínimo ou mês corrente.")
-            progress_bar.progress(100)
-            st.stop()
-        
-        status_text.text(f"📈 Iniciando análise: {len(extrato_filtrado)} transações x {len(contabil_filtrado)} lançamentos")
-        
-        # Executar análise em camadas
-        status_text.text("🎯 Camada 1/3: Identificação de Correspondências Exatas...")
+        # Executar análise em camadas (código existente)
         resultados_exato = analyzer.matching_exato(extrato_filtrado, contabil_filtrado)
-        progress_bar.progress(50)
+        progress_bar.progress(60)
         
-        status_text.text("🎯 Camada 2/3: Identificação de Correspondências por Similaridade...")
         resultados_heurístico = analyzer.matching_heuristico(
-            extrato_filtrado, 
-            contabil_filtrado, 
+            extrato_filtrado, contabil_filtrado, 
             resultados_exato['nao_matchados_extrato'],
             resultados_exato['nao_matchados_contabil'],
-            tolerancia_data,
-            tolerancia_valor,
-            similaridade_minima
+            tolerancia_data, tolerancia_valor, similaridade_minima
         )
-        progress_bar.progress(75)
+        progress_bar.progress(80)
         
-        status_text.text("🎯 Camada 3/3: Análise de Casos Complexos...")
         resultados_ia = analyzer.matching_ia(
-            extrato_filtrado,
-            contabil_filtrado,
+            extrato_filtrado, contabil_filtrado,
             resultados_heurístico['nao_matchados_extrato'],
             resultados_heurístico['nao_matchados_contabil']
         )
-        progress_bar.progress(90)
+        
+        progress_bar.progress(100)
+        status_text.text("✅ Análise concluída!")
         
         # Consolidar resultados
-        status_text.text("📊 Consolidando resultados...")
         resultados_finais = analyzer.consolidar_resultados(
             resultados_exato, resultados_heurístico, resultados_ia
         )
@@ -313,15 +404,12 @@ if st.button("Executar Análise de Correspondências", type="primary", width='st
         st.session_state['extrato_filtrado'] = extrato_filtrado
         st.session_state['contabil_filtrado'] = contabil_filtrado
         
-        progress_bar.progress(100)
-        status_text.text("✅ Análise concluída!")
-        
-        # Mostrar resultados imediatamente
-        st.balloons()
-        st.success("🎉 Análise de correspondências concluída com sucesso!")
-        
-        # Forçar atualização da página para mostrar resultados
+        st.success("🎉 Análise de correspondências concluída!")
         st.rerun()
+        
+    except Exception as e:
+        st.error(f"Erro na análise: {str(e)}")
+        progress_bar.progress(0)
         
     except Exception as e:
         st.error(f"❌ Erro na análise: {str(e)}")
@@ -448,93 +536,70 @@ if 'resultados_analise' in st.session_state:
             st.info("ℹ️ Nenhuma correspondência identificada com os critérios atuais.")
     
     with aba2:
-        st.subheader("Divergências e Itens Não Correspondentes")
+        st.subheader("🔍 Análise Detalhada das Divergências")
         
-        if resultados_finais['excecoes']:
-            # Tabela detalhada de divergências
-            st.markdown("**📋 Tabela de Divergências Detalhada**")
+        if resultados_finais.get('excecoes'):
+            # Gerar tabelas melhoradas
+            tabelas_divergencias = gerar_tabelas_divergencias_melhoradas(
+                resultados_finais, extrato_filtrado, contabil_filtrado
+            )
             
-            divergencias_detalhadas = []
-            for i, excecao in enumerate(resultados_finais['excecoes']):
-                # Para cada item nas divergências, criar entrada detalhada
-                if excecao['tipo'] == 'TRANSAÇÃO_SEM_CORRESPONDÊNCIA':
-                    # Para transações sem correspondência, mostrar cada transação
-                    transacoes_divergentes = extrato_filtrado[extrato_filtrado['id'].isin(excecao['ids_envolvidos'])]
-                    for _, transacao in transacoes_divergentes.iterrows():
-                        data_str = transacao['data'].strftime('%d/%m/%Y') if hasattr(transacao['data'], 'strftime') else str(transacao['data'])
-                        valor_original = transacao.get('valor_original', transacao['valor'])
-                        divergencias_detalhadas.append({
-                            'Tipo_Divergência': excecao['tipo'],
-                            'Severidade': excecao['severidade'],
-                            'Data': data_str,
-                            'Descrição': transacao.get('descricao', 'N/A'),
-                            'Valor': f"R$ {valor_original:,.2f}",
-                            'Origem': 'Extrato Bancário',
-                            'Ação_Recomendada': excecao['acao_sugerida']
-                        })
-                
-                elif excecao['tipo'] == 'LANÇAMENTO_SEM_CORRESPONDÊNCIA':
-                    # Para lançamentos sem correspondência, mostrar cada lançamento
-                    lancamentos_divergentes = contabil_filtrado[contabil_filtrado['id'].isin(excecao['ids_envolvidos'])]
-                    for _, lancamento in lancamentos_divergentes.iterrows():
-                        data_str = lancamento['data'].strftime('%d/%m/%Y') if hasattr(lancamento['data'], 'strftime') else str(lancamento['data'])
-                        valor_original = lancamento.get('valor_original', lancamento['valor'])
-                        divergencias_detalhadas.append({
-                            'Tipo_Divergência': excecao['tipo'],
-                            'Severidade': excecao['severidade'],
-                            'Data': data_str,
-                            'Descrição': lancamento.get('descricao', 'N/A'),
-                            'Valor': f"R$ {valor_original:,.2f}",
-                            'Origem': 'Contábil',
-                            'Ação_Recomendada': excecao['acao_sugerida']
-                        })
+            # Abas para cada tipo de divergência
+            tab1, tab2, tab3 = st.tabs([
+                "🏦 Bancário sem Contábil", 
+                "📊 Contábil sem Bancário", 
+                "🔍 Similaridades"
+            ])
+            
+            with tab1:
+                st.markdown("**Valores Presentes no Extrato mas Não na Contabilidade**")
+                if not tabelas_divergencias['bancario_sem_contabil'].empty:
+                    st.dataframe(tabelas_divergencias['bancario_sem_contabil'], width='stretch')
+                    
+                    # Botão de exportação
+                    csv_bancario = tabelas_divergencias['bancario_sem_contabil'].to_csv(index=False)
+                    st.download_button(
+                        label="📥 Exportar Divergências Bancárias",
+                        data=csv_bancario,
+                        file_name="divergencias_bancario_sem_contabil.csv",
+                        mime="text/csv"
+                    )
                 else:
-                    # Para outros tipos de divergência
-                    divergencias_detalhadas.append({
-                        'Tipo_Divergência': excecao['tipo'],
-                        'Severidade': excecao['severidade'],
-                        'Data': 'Múltiplas',
-                        'Descrição': excecao['descricao'],
-                        'Valor': 'N/A',
-                        'Origem': 'Múltiplas',
-                        'Ação_Recomendada': excecao['acao_sugerida']
-                    })
+                    st.success("✅ Nenhuma divergência")
             
-            # Exibir tabela detalhada
-            if divergencias_detalhadas:
-                df_divergencias_detalhadas = pd.DataFrame(divergencias_detalhadas)
-                st.dataframe(
-                    df_divergencias_detalhadas,
-                    width='stretch',
-                    hide_index=True
-                )
-                
-                #  SALVAR NO SESSION STATE 
-                st.session_state['divergencias_tabela'] = df_divergencias_detalhadas
-                st.success(f"✅ Tabela de divergências salva ({len(df_divergencias_detalhadas)} itens)")
-                
-                # Botão para exportar divergências
-                csv_divergencias = df_divergencias_detalhadas.to_csv(index=False)
-                st.download_button(
-                    label="📥 Exportar Divergências (CSV)",
-                    data=csv_divergencias,
-                    file_name=f"divergencias_detalhadas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
+            with tab2:
+                st.markdown("**Lançamentos Contábeis sem Movimentação Bancária**")
+                if not tabelas_divergencias['contabil_sem_bancario'].empty:
+                    st.dataframe(tabelas_divergencias['contabil_sem_bancario'], width='stretch')
+                    
+                    csv_contabil = tabelas_divergencias['contabil_sem_bancario'].to_csv(index=False)
+                    st.download_button(
+                        label="📥 Exportar Divergências Contábeis",
+                        data=csv_contabil,
+                        file_name="divergencias_contabil_sem_bancario.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.success("✅ Nenhuma divergência")
             
-            # Relatório textual original (mantido para compatibilidade)
-            st.markdown("**📝 Relatório de Divergências**")
-            for i, excecao in enumerate(resultados_finais['excecoes']):
-                st.write(f"**Divergência {i+1}: {excecao['tipo']} - {excecao['severidade']}**")
-                st.write(f"**Descrição:** {excecao['descricao']}")
-                st.write(f"**Recomendação:** {excecao['acao_sugerida']}")
-                st.write(f"**Itens envolvidos:** {len(excecao['ids_envolvidos'])}")
-                st.write("---")
+            with tab3:
+                st.markdown("**Possíveis Correspondências por Similaridade**")
+                if not tabelas_divergencias['possiveis_similaridades'].empty:
+                    st.dataframe(tabelas_divergencias['possiveis_similaridades'], width='stretch')
+                    
+                    csv_similaridades = tabelas_divergencias['possiveis_similaridades'].to_csv(index=False)
+                    st.download_button(
+                        label="📥 Exportar Similaridades",
+                        data=csv_similaridades,
+                        file_name="possiveis_correspondencias_similaridade.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.info("ℹ️ Nenhuma similaridade identificada")
+        
         else:
             st.success("✅ Nenhuma divergência crítica identificada")
-            # Limpar tabela de divergências se não houver
-            if 'divergencias_tabela' in st.session_state:
-                del st.session_state['divergencias_tabela']
+    
     
     with aba3:
         st.subheader("Estatísticas Detalhadas")
@@ -564,7 +629,33 @@ if 'resultados_analise' in st.session_state:
                 ]
             }
             st.bar_chart(pd.DataFrame(camadas_data).set_index('Camada'))
-    
+        
+        # NOVA SEÇÃO: ESTATÍSTICAS DA IA - COM VERIFICAÇÃO DE EXISTÊNCIA
+        if 'estatisticas_ia' in resultados_finais and resultados_finais['estatisticas_ia']:
+            st.markdown("**🤖 Estatísticas da IA Avançada**")
+            stats_ia = resultados_finais['estatisticas_ia']
+            
+            # Verificar se as chaves existem antes de acessar
+            matches_semanticos = stats_ia.get('matches_semanticos', 0)
+            matches_temporais = stats_ia.get('matches_temporais', 0)
+            matches_agrupados = stats_ia.get('matches_agrupados', 0)
+            matches_entidades = stats_ia.get('matches_entidades', 0)
+            
+            # Só mostrar se houver dados da IA
+            if any([matches_semanticos, matches_temporais, matches_agrupados, matches_entidades]):
+                col_ia1, col_ia2, col_ia3, col_ia4 = st.columns(4)
+                
+                with col_ia1:
+                    st.metric("Matches Semânticos", matches_semanticos)
+                
+                with col_ia2:
+                    st.metric("Matches Temporais", matches_temporais)
+                
+                with col_ia3:
+                    st.metric("Matches Agrupados", matches_agrupados)
+                
+                with col_ia4:
+                    st.metric("Matches por Entidades", matches_entidades)
     with aba4:
         st.subheader("Detalhes Técnicos da Análise")
         
@@ -590,7 +681,7 @@ if 'resultados_analise' in st.session_state:
 
     with col1:
         if st.button("🔄 Nova Análise", width='stretch'):
-            keys_to_clear = ['resultados_analise', 'extrato_filtrado', 'contabil_filtrado', 'divergencias_tabela']
+            keys_to_clear = ['resultados_analise', 'extrato_filtrado', 'contabil_filtrado', 'tabelas_divergencias_melhoradas']
             for key in keys_to_clear:
                 if key in st.session_state:
                     del st.session_state[key]
@@ -614,5 +705,3 @@ if 'resultados_analise' in st.session_state:
         else:
             st.button("📄 Gerar Relatório", disabled=True, width='stretch')
             st.caption("Execute a análise primeiro")
-
-

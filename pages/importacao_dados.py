@@ -1067,16 +1067,34 @@ else:  # 🔗 Links Diretos para Arquivos
     **Funciona com:** Google Drive, SharePoint, OneDrive, Dropbox
     """)
     
-# PROCESSAMENTO DOS DADOS (COMUM PARA AMBOS OS SISTEMAS)
+# NO PROCESSAMENTO DOS DADOS (COMUM PARA AMBOS OS SISTEMAS)
 if st.session_state.extrato_df is not None and st.session_state.contabil_df is not None:
     st.divider()
     st.header("📊 Visualização dos Dados Carregados")
     
     if sistema_validacao and st.session_state.conta_selecionada:
         st.success(f"✅ Dados da conta {st.session_state.conta_selecionada} carregados com sucesso!")
+        
+        # ✅ NOVO: SALVAR A CONTA NO SESSION STATE PARA USO NO RELATÓRIO
+        st.session_state.conta_analisada = st.session_state.conta_selecionada
+        st.info(f"📋 Conta selecionada para análise: **{st.session_state.conta_selecionada}**")
+        
     else:
         st.success("✅ Dados carregados com sucesso! Visualização das informações:")
-    
+        
+        # ✅ NOVO: PARA SISTEMA SEM VALIDAÇÃO, TENTAR DETECTAR A CONTA
+        if 'conta_bancaria' in st.session_state.extrato_df.columns:
+            contas_encontradas = st.session_state.extrato_df['conta_bancaria'].unique()
+            if len(contas_encontradas) == 1:
+                conta_detectada = contas_encontradas[0]
+                st.session_state.conta_analisada = conta_detectada
+                st.info(f"📋 Conta detectada automaticamente: **{conta_detectada}**")
+            else:
+                st.session_state.conta_analisada = "Múltiplas contas"
+                st.info("📋 Múltiplas contas detectadas nos arquivos")
+        else:
+            st.session_state.conta_analisada = "Não identificada"
+            st.info("📋 Conta não identificada - use o sistema de validação para melhor precisão")
     # Processamento automático sem configuração do usuário
     with st.spinner("Processando e padronizando dados automaticamente..."):
         try:

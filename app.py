@@ -60,7 +60,7 @@ with col3:
 with st.sidebar:
     st.header("ℹ️ Sobre o Sistema")
     st.markdown("""
-    **Versão:** 2.1.0      
+    **Versão:** 2.2.0      
     **Desenvolvido para:** Empresas e contadores  
     **Desenvolvido por:** Luiz Bispo (X-Testing)
                 
@@ -98,7 +98,7 @@ if st.sidebar.button("🔄 Nova Análise", width='stretch'):
         'extrato_carregado', 'contabil_carregado', 'caminho_extrato', 
         'caminho_contabil', 'resultados_analise', 'extrato_df', 
         'contabil_df', 'matches_aprovados', 'matches_rejeitados', 
-        'matches_pendentes'
+        'matches_pendentes', 'conta_analisada'  # ✅ NOVO: LIMPAR CONTA TAMBÉM
     ]
     for key in keys_to_clear:
         if key in st.session_state:

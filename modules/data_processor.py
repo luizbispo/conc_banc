@@ -351,3 +351,4 @@ def processar_contabil(df, col_data, col_valor, col_descricao):
     
     return df_processed[['id', 'data', 'valor', 'descricao'] + 
                        [col for col in df_processed.columns if col not in ['id', 'data', 'valor', 'descricao']]]
+
