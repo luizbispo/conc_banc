@@ -1,12 +1,52 @@
+# Framework Principal
 streamlit>=1.28.0
+
+# Processamento de Dados
 pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.0.0  # Para Excel
+python-dateutil>=2.8.2
+chardet>=5.0.0
+
+# Visualização
 plotly>=5.15.0
+
+# Processamento de Arquivos Bancários
 ofxparse>=0.20
+PyPDF2>=3.0.0  # Para processamento de PDF
+pdfplumber>=0.10.0  # Alternativa para PDF
+
+# IA e Processamento de Linguagem
 langchain-openai>=0.0.5
 langchain-core>=0.1.0
 openai>=1.0.0
-python-dotenv>=1.0.0
+
+# Banco de Dados e Autenticação
+sqlite3  # Incluído no Python
+pyjwt>=2.8.0  # Para tokens JWT
+cryptography>=41.0.0  # Para segurança
+
+# Geração de Relatórios
 fpdf>=1.7.2
-numpy>=1.24.0
-python-dateutil>=2.8.2
-chardet>=5.0.0 
+reportlab>=4.0.0  # Para PDF mais avançado
+
+# Requisições Web
+requests>=2.31.0  # Para importação de nuvem
+
+# Utilitários
+python-dotenv>=1.0.0
+python-multipart>=0.0.6
+
+# Análise de Texto e Similaridade
+difflib  # Incluído no Python
+scikit-learn>=1.3.0  # Para algoritmos de ML
+scipy>=1.11.0  # Para cálculos científicos
+
+# Cache e Performance
+joblib>=1.3.0  # Para cache de modelos
+
+# Internacionalização
+babel>=2.12.0  # Para formatação de datas/moedas
+
+# Processamento de Texto Avançado
+spacy>=3.7.0  # Para NLP (opcional)
