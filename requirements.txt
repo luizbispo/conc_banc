@@ -1,27 +1,46 @@
-streamlit>=1.28.0
-pandas>=2.0.0
-numpy>=1.24.0
-openpyxl>=3.0.0
-python-dateutil>=2.8.2
-chardet>=5.0.0
-plotly>=5.15.0
-ofxparse>=0.20
-PyPDF2>=3.0.0 
-pdfplumber>=0.10.0
-langchain-openai>=0.0.5
-langchain-core>=0.1.0
-openai>=1.0.0
-sqlite3 
-pyjwt>=2.8.0 
-cryptography>=41.0.0 
-fpdf>=1.7.2
-reportlab>=4.0.0 
-requests>=2.31.0 
-python-dotenv>=1.0.0
-python-multipart>=0.0.6
-difflib 
-scikit-learn>=1.3.0 
-scipy>=1.11.0  
-joblib>=1.3.0  
-babel>=2.12.0 
-spacy>=3.7.0  
+# Framework Principal
+streamlit==1.28.2
+
+# Processamento de Dados
+pandas==2.1.4
+numpy==1.24.3
+openpyxl==3.1.2
+python-dateutil==2.8.2
+chardet==5.2.0
+
+# Visualização
+plotly==5.17.0
+
+# Processamento de Arquivos Bancários
+ofxparse==0.21
+PyPDF2==3.0.1
+pdfplumber==0.10.3
+
+# IA e Processamento de Linguagem
+langchain-openai==0.0.5
+langchain-core==0.1.0
+openai==1.3.9
+
+# Autenticação e Segurança
+PyJWT==2.8.0
+cryptography==41.0.7
+
+# Geração de Relatórios - MANTENDO FPDF ORIGINAL
+fpdf==1.7.2
+reportlab==4.0.4
+
+# Requisições Web
+requests==2.31.0
+
+# Utilitários
+python-dotenv==1.0.0
+
+# Análise de Texto e Similaridade
+scikit-learn==1.3.2
+scipy==1.11.4
+
+# Cache e Performance
+joblib==1.3.2
+
+# Internacionalização
+Babel==2.13.1
