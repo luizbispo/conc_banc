@@ -45,8 +45,13 @@ class CacheManager:
         cache_file = os.path.join(self.cache_dir, f"{key}.pkl.gz")
         if os.path.exists(cache_file):
             try:
-                with gzip.open(cache_file, 'rb') as f:
-                    return pickle.load(f)
+                # ADICIONAR: Verificar tempo de expiração (1 hora)
+                file_time = os.path.getmtime(cache_file)
+                if time.time() - file_time < 3600:  # 1 hora
+                    with gzip.open(cache_file, 'rb') as f:
+                        return pickle.load(f)
+                else:
+                    os.remove(cache_file)  # Remover cache expirado
             except:
                 return None
         return None

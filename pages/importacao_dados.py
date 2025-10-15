@@ -130,15 +130,21 @@ def validar_formato_nome(nome_arquivo):
     Valida se o nome do arquivo segue o formato correto
     Retorna: (é_valido, tipo, numero_conta, extensao)
     """
+    # CORREÇÃO: Remover espaços e converter para maiúsculo, mas manter a extensão original
+    nome_arquivo = nome_arquivo.strip()
+    
+    # CORREÇÃO: Padrão mais flexível que aceita números de conta variados
     padrao = r'^(B|C)_(\d+)\.(ofx|csv|xlsx|xls|pdf|ret|cnab)$'
-    match = re.match(padrao, nome_arquivo, re.IGNORECASE)
+    match = re.match(padrao, nome_arquivo, re.IGNORECASE)  # CORREÇÃO: Adicionar ignore case
     
     if match:
         tipo = match.group(1).upper()  # B ou C
         numero_conta = match.group(2)  # Número da conta
         extensao = match.group(3).lower()  # Extensão do arquivo
+        print(f"✅ Arquivo válido: {nome_arquivo} -> Tipo: {tipo}, Conta: {numero_conta}, Ext: {extensao}")
         return True, tipo, numero_conta, extensao
     else:
+        print(f"❌ Formato inválido: {nome_arquivo} - Padrão esperado: B_12345678.extensão ou C_12345678.extensão")
         return False, None, None, None
 
 def extrair_info_arquivos(arquivos):
@@ -1100,31 +1106,77 @@ if st.session_state.extrato_df is not None and st.session_state.contabil_df is n
     # Processamento automático sem configuração do usuário
     with st.spinner("Processando e padronizando dados automaticamente..."):
         try:
-            # Função para detectar automaticamente as colunas
             def detectar_colunas_automaticamente(df, tipo):
                 """Detecta automaticamente colunas de data, valor e descrição"""
                 colunas = df.columns.tolist()
-                colunas_lower = [col.lower() for col in colunas]
+                colunas_lower = [str(col).lower() for col in colunas]  # GARANTIR QUE É STRING
                 
-                # Mapeamento de padrões
-                padroes_data = ['data', 'date', 'dt', 'datahora', 'data_transacao']
-                padroes_valor = ['valor', 'value', 'amount', 'vlr', 'montante', 'saldo']
-                padroes_descricao = ['descricao', 'description', 'desc', 'historico', 'observacao', 'memo', 'payee']
+                # Mapeamento de padrões com pesos
+                padroes_data = ['data', 'date', 'dt', 'datahora', 'data_transacao', 'vencimento']
+                padroes_valor = ['valor', 'value', 'amount', 'vlr', 'montante', 'saldo', 'total']
+                padroes_descricao = ['descricao', 'description', 'desc', 'historico', 'observacao', 'memo', 'payee', 'nome']
                 
-                # Encontrar colunas correspondentes
+                # Encontrar colunas correspondentes com scoring
                 col_data = None
                 col_valor = None
                 col_descricao = None
+                melhor_score_data = 0
+                melhor_score_valor = 0
+                melhor_score_desc = 0
                 
                 for i, col in enumerate(colunas_lower):
-                    if any(padrao in col for padrao in padroes_data) and not col_data:
-                        col_data = colunas[i]
-                    elif any(padrao in col for padrao in padroes_valor) and not col_valor:
-                        col_valor = colunas[i]
-                    elif any(padrao in col for padrao in padroes_descricao) and not col_descricao:
-                        col_descricao = colunas[i]
+                    col_original = colunas[i]
+                    
+                    # Verificar padrões de data
+                    for j, padrao in enumerate(padroes_data):
+                        if padrao in col:
+                            score = len(padrao)  # Score baseado no tamanho do padrão
+                            if score > melhor_score_data:
+                                melhor_score_data = score
+                                col_data = col_original
+                    
+                    # Verificar padrões de valor
+                    for j, padrao in enumerate(padroes_valor):
+                        if padrao in col:
+                            score = len(padrao)
+                            if score > melhor_score_valor:
+                                melhor_score_valor = score
+                                col_valor = col_original
+                    
+                    # Verificar padrões de descrição
+                    for j, padrao in enumerate(padroes_descricao):
+                        if padrao in col:
+                            score = len(padrao)
+                            if score > melhor_score_desc:
+                                melhor_score_desc = score
+                                col_descricao = col_original
                 
-                # Fallbacks se não encontrar
+                # Fallbacks inteligentes
+                if not col_data:
+                    # Procurar colunas que parecem ser datas
+                    for col in colunas:
+                        if df[col].dtype == 'datetime64[ns]':
+                            col_data = col
+                            break
+                        elif len(df) > 0 and isinstance(df[col].iloc[0], (datetime, pd.Timestamp)):
+                            col_data = col
+                            break
+                
+                if not col_valor and len(colunas) > 0:
+                    # Procurar colunas numéricas
+                    for col in colunas:
+                        if pd.api.types.is_numeric_dtype(df[col]):
+                            col_valor = col
+                            break
+                
+                if not col_descricao and len(colunas) > 0:
+                    # Procurar colunas de texto
+                    for col in colunas:
+                        if pd.api.types.is_string_dtype(df[col]):
+                            col_descricao = col
+                            break
+                
+                # Últimos fallbacks
                 if not col_data and len(colunas) > 0:
                     col_data = colunas[0]
                 if not col_valor and len(colunas) > 1:

@@ -152,34 +152,43 @@ class DataAnalyzer:
         }
     
     def _identificar_excecoes_melhorado(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame) -> List[Dict]:
-        """Identifica exceções e divergências com terminologia melhorada"""
+        """Identifica exceções e divergências com contagem correta"""
         excecoes = []
         
         # 1. Transações bancárias sem correspondência
         if len(extrato_df) > 0:
             total_valor_extrato = extrato_df['valor'].abs().sum()
-            excecoes.append({
-                'tipo': 'MOVIMENTAÇÃO_BANCÁRIA_SEM_LANÇAMENTO',
-                'severidade': 'ALTA',
-                'descricao': f"{len(extrato_df)} movimentações bancárias sem lançamento contábil",
-                'detalhes': f"Valor total: R$ {total_valor_extrato:,.2f}",
-                'ids_envolvidos': extrato_df['id'].tolist(),
-                'acao_sugerida': 'Verificar despesas não contabilizadas ou receitas não identificadas',
-                'categoria': 'Bancário → Contábil'
-            })
+            
+            # CORREÇÃO: Criar uma exceção por transação individual
+            for _, transacao in extrato_df.iterrows():
+                data_str = transacao['data'].strftime('%d/%m/%Y') if hasattr(transacao['data'], 'strftime') else str(transacao['data'])
+                
+                excecoes.append({
+                    'tipo': 'MOVIMENTAÇÃO_BANCÁRIA_SEM_LANÇAMENTO',
+                    'severidade': 'ALTA',
+                    'descricao': f"Movimentação bancária sem lançamento contábil",
+                    'detalhes': f"Data: {data_str} | Valor: R$ {transacao['valor']:,.2f} | Descrição: {transacao.get('descricao', 'N/A')}",
+                    'ids_envolvidos': [transacao['id']],
+                    'acao_sugerida': 'Verificar se é despesa não contabilizada ou receita não identificada',
+                    'categoria': 'Bancário → Contábil',
+                    'valor_individual': abs(transacao['valor'])
+                })
         
         # 2. Lançamentos contábeis sem movimentação bancária
         if len(contabil_df) > 0:
-            total_valor_contabil = contabil_df['valor'].abs().sum()
-            excecoes.append({
-                'tipo': 'LANÇAMENTO_CONTÁBIL_SEM_MOVIMENTAÇÃO',
-                'severidade': 'ALTA', 
-                'descricao': f"{len(contabil_df)} lançamentos contábeis sem movimentação bancária",
-                'detalhes': f"Valor total: R$ {total_valor_contabil:,.2f}",
-                'ids_envolvidos': contabil_df['id'].tolist(),
-                'acao_sugerida': 'Verificar provisionamentos ou lançamentos futuros',
-                'categoria': 'Contábil → Bancário'
-            })
+            for _, lancamento in contabil_df.iterrows():
+                data_str = lancamento['data'].strftime('%d/%m/%Y') if hasattr(lancamento['data'], 'strftime') else str(lancamento['data'])
+                
+                excecoes.append({
+                    'tipo': 'LANÇAMENTO_CONTÁBIL_SEM_MOVIMENTAÇÃO',
+                    'severidade': 'ALTA',
+                    'descricao': f"Lançamento contábil sem movimentação bancária",
+                    'detalhes': f"Data: {data_str} | Valor: R$ {lancamento['valor']:,.2f} | Descrição: {lancamento.get('descricao', 'N/A')}",
+                    'ids_envolvidos': [lancamento['id']],
+                    'acao_sugerida': 'Verificar provisionamentos ou lançamentos futuros',
+                    'categoria': 'Contábil → Bancário',
+                    'valor_individual': abs(lancamento['valor'])
+                })
         
         return excecoes
 

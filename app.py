@@ -342,7 +342,7 @@ def show_main_app():
     with st.sidebar:
         st.header("ℹ️ Sobre o Sistema")
         st.markdown("""
-        **Versão:** 2.4.0     
+        **Versão:** 2.5.0     
         **Desenvolvido para:** Empresas e contadores  
         **Desenvolvido por:** Luiz Bispo (X-Testing)
                     

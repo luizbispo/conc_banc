@@ -13,7 +13,6 @@ from modules.interactive_dashboard import get_dashboard
 
 
 @require_auth
-
 def main():
     st.set_page_config(page_title="Análise de Correspondências", page_icon="🔍", layout="wide")
 
@@ -26,125 +25,6 @@ def main():
         st.page_link("pages/analise_dados.py", label="📊 Análise de Divergências", icon=None)
         st.page_link("pages/gerar_relatorio.py", label="📝 Relatório Final", icon=None)
     # --- Fim do Menu Customizado ---
-
-    # --- FUNÇÕES PARA TABELAS MELHORADAS ---
-    def gerar_tabelas_divergencias_melhoradas(resultados_analise, extrato_df, contabil_df):
-        """
-        Gera tabelas de divergências mais explicativas e organizadas
-        """
-        # Identificar transações não matchadas
-        extrato_match_ids = set()
-        contabil_match_ids = set()
-        
-        for match in resultados_analise['matches']:
-            extrato_match_ids.update(match['ids_extrato'])
-            contabil_match_ids.update(match['ids_contabil'])
-        
-        # Tabela 1: Presente no bancário mas não no contábil
-        extrato_nao_match = extrato_df[~extrato_df['id'].isin(extrato_match_ids)]
-        tabela_bancario_sem_contabil = _criar_tabela_bancario_sem_contabil(extrato_nao_match)
-        
-        # Tabela 2: Presente no contábil mas não no bancário
-        contabil_nao_match = contabil_df[~contabil_df['id'].isin(contabil_match_ids)]
-        tabela_contabil_sem_bancario = _criar_tabela_contabil_sem_bancario(contabil_nao_match)
-        
-        # Tabela 3: Possíveis correspondências por similaridade
-        tabela_similaridades = _criar_tabela_similaridades(extrato_nao_match, contabil_nao_match)
-        
-        return {
-            'bancario_sem_contabil': tabela_bancario_sem_contabil,
-            'contabil_sem_bancario': tabela_contabil_sem_bancario,
-            'possiveis_similaridades': tabela_similaridades
-        }
-
-    def _criar_tabela_bancario_sem_contabil(extrato_nao_match):
-        """Cria tabela para valores presentes no bancário mas não no contábil - TERMINOLOGIA MELHORADA"""
-        tabela = []
-        
-        for _, transacao in extrato_nao_match.iterrows():
-            data_str = transacao['data'].strftime('%d/%m/%Y') if hasattr(transacao['data'], 'strftime') else str(transacao['data'])
-            
-            tabela.append({
-                'Tipo_Divergência': '🔴 Mov. Bancária sem Lançamento',
-                'Data': data_str,
-                'Valor_Bancário': f"R$ {transacao['valor']:,.2f}",
-                'Descrição_Bancário': transacao.get('descricao', 'N/A'),
-                'Origem': '🏦 Extrato Bancário',
-                'Status': 'Não conciliado',
-                'Recomendação': 'Verificar se é despesa não lançada, receita não identificada ou lançamento em período diferente',
-                'Ação_Sugerida': 'Incluir no sistema contábil ou identificar natureza da transação'
-            })
-        
-        return pd.DataFrame(tabela)
-
-    def _criar_tabela_contabil_sem_bancario(contabil_nao_match):
-        """Cria tabela para valores presentes no contábil mas não no bancário - TERMINOLOGIA MELHORADA"""
-        tabela = []
-        
-        for _, lancamento in contabil_nao_match.iterrows():
-            data_str = lancamento['data'].strftime('%d/%m/%Y') if hasattr(lancamento['data'], 'strftime') else str(lancamento['data'])
-            
-            tabela.append({
-                'Tipo_Divergência': '🔴 Lançamento sem Mov. Bancária',
-                'Data': data_str,
-                'Valor_Contábil': f"R$ {lancamento['valor']:,.2f}",
-                'Descrição_Contábil': lancamento.get('descricao', 'N/A'),
-                'Origem': '📊 Sistema Contábil',
-                'Status': 'Não conciliado',
-                'Recomendação': 'Verificar se é provisionamento, lançamento futuro, ajuste contábil ou erro de lançamento',
-                'Ação_Sugerida': 'Aguardar compensação, corrigir lançamento ou verificar periodicidade'
-            })
-        
-        return pd.DataFrame(tabela)
-
-    def _criar_tabela_similaridades(extrato_nao_match, contabil_nao_match):
-        """Identifica possíveis correspondências por similaridade - TERMINOLOGIA MELHORADA"""
-        tabela = []
-        
-        for _, extrato_row in extrato_nao_match.iterrows():
-            valor_extrato = abs(extrato_row['valor'])
-            data_extrato = extrato_row['data']
-            
-            for _, contabil_row in contabil_nao_match.iterrows():
-                valor_contabil = abs(contabil_row['valor'])
-                data_contabil = contabil_row['data']
-                
-                diff_valor_percent = abs(valor_extrato - valor_contabil) / valor_extrato * 100 if valor_extrato > 0 else 100
-                diff_dias = abs((data_extrato - data_contabil).days) if hasattr(data_extrato, 'strftime') and hasattr(data_contabil, 'strftime') else 30
-                
-                if diff_valor_percent <= 10 and diff_dias <= 5:
-                    similaridade = _calcular_similaridade_texto(
-                        extrato_row.get('descricao', ''),
-                        contabil_row.get('descricao', '')
-                    )
-                    
-                    if similaridade >= 40:
-                        confianca_ajuste = (100 - diff_valor_percent) * (100 - diff_dias * 2) * similaridade / 10000
-                        
-                        tabela.append({
-                            'Tipo_Analise': '🟡 Possível Correspondência',
-                            'Similaridade_Detectada': f"{similaridade:.1f}%",
-                            'Data_Bancário': data_extrato.strftime('%d/%m/%Y') if hasattr(data_extrato, 'strftime') else str(data_extrato),
-                            'Data_Contábil': data_contabil.strftime('%d/%m/%Y') if hasattr(data_contabil, 'strftime') else str(data_contabil),
-                            'Valor_Bancário': f"R$ {extrato_row['valor']:,.2f}",
-                            'Valor_Contábil': f"R$ {contabil_row['valor']:,.2f}",
-                            'Descrição_Bancário': extrato_row.get('descricao', '')[:50] + "..." if len(extrato_row.get('descricao', '')) > 50 else extrato_row.get('descricao', ''),
-                            'Descrição_Contábil': contabil_row.get('descricao', '')[:50] + "..." if len(contabil_row.get('descricao', '')) > 50 else contabil_row.get('descricao', ''),
-                            'Diferença_Valor': f"R$ {abs(extrato_row['valor'] - contabil_row['valor']):,.2f}",
-                            'Diferença_Dias': diff_dias,
-                            'Confiança_Ajuste': f"{confianca_ajuste:.1f}%",
-                            'Recomendação': 'Analisar manualmente - possível correspondência que precisa de validação'
-                        })
-        
-        return pd.DataFrame(tabela)
-
-    def _calcular_similaridade_texto(texto1, texto2):
-        """Calcula similaridade entre textos"""
-        if not texto1 or not texto2:
-            return 0.0
-        return SequenceMatcher(None, texto1.lower(), texto2.lower()).ratio() * 100
-
-    # --- FIM DAS FUNÇÕES PARA TABELAS MELHORADAS ---
 
     st.title("🔍 Análise de Correspondências Bancárias")
     st.markdown("Identifique automaticamente as correspondências entre extrato bancário e lançamentos contábeis")
@@ -265,6 +145,11 @@ def main():
             extrato_df['valor_matching'] = extrato_df['valor_abs']
             contabil_df['valor_matching'] = contabil_df['valor_abs']
             
+            # ADICIONAR: Identificar tipo de operação baseado no sinal
+            extrato_df['tipo_operacao'] = extrato_df['valor'].apply(
+                lambda x: 'Débito' if x < 0 else 'Crédito'
+            )
+            
             st.info("🔧 Valores processados para matching: usando valor absoluto para comparação")
             
             return extrato_df, contabil_df
@@ -343,13 +228,24 @@ def main():
             display_cols = ['id', 'data', 'valor_original', 'descricao'] if 'descricao' in contabil_df.columns else ['id', 'data', 'valor_original']
             st.dataframe(contabil_df[display_cols].head(), width='stretch')
 
-    # Configurações de análise
+    # Configurações de análise - MODIFICADO
     st.sidebar.header("⚙️ Configurações de Análise")
 
     with st.sidebar.expander("🔧 Tolerâncias de Matching"):
-        tolerancia_data = st.slider("Tolerância de Data (dias)", 0, 7, 2)
-        tolerancia_valor = st.number_input("Tolerância de Valor (R$)", 0.0, 50.0, 0.10, 0.01)
-        similaridade_minima = st.slider("Similaridade Mínima de Texto (%)", 50, 95, 70)
+        # REMOVIDO: Tolerância de Data e Similaridade Mínima
+        # ADICIONADO: Tolerância de Percentual
+        tolerancia_percentual = st.slider(
+            "Tolerância de Valor (%)", 
+            min_value=0.0, 
+            max_value=10.0, 
+            value=2.0, 
+            step=0.1,
+            help="Diferença percentual máxima permitida entre valores para considerar como correspondência"
+        )
+        
+        st.info("ℹ️ **Configurações automáticas:**")
+        st.info("- **Tolerância de data:** 2 dias (fixo)")
+        st.info("- **Similaridade mínima:** 70% (automática)")
 
     with st.sidebar.expander("📋 Regras de Correspondência"):
         considerar_1n = st.checkbox("Identificar parcelamentos (1:N)", True)
@@ -373,7 +269,10 @@ def main():
             status_text.text("Preparando dados...")
             progress_bar.progress(20)
             
-            # Aplicar filtros (código existente)
+            # Aplicar filtros
+            extrato_filtrado = extrato_df.copy()
+            contabil_filtrado = contabil_df.copy()
+            
             if valor_minimo > 0:
                 extrato_filtrado = extrato_df[extrato_df['valor_matching'] >= valor_minimo].copy()
                 contabil_filtrado = contabil_df[contabil_df['valor_matching'] >= valor_minimo].copy()
@@ -381,15 +280,24 @@ def main():
             progress_bar.progress(40)
             status_text.text("Executando análise...")
             
-            # Executar análise em camadas (código existente)
+            # CONVERTER TOLERÂNCIA PERCENTUAL PARA VALOR ABSOLUTO
+            # Para usar nas funções existentes, precisamos converter % para R$
+            # Vamos calcular uma tolerância média baseada nos dados
+            valor_medio = extrato_filtrado['valor_matching'].mean()
+            tolerancia_valor_abs = (tolerancia_percentual / 100) * valor_medio
+            
+            # Executar análise em camadas com tolerâncias fixas
             resultados_exato = analyzer.matching_exato(extrato_filtrado, contabil_filtrado)
             progress_bar.progress(60)
             
+            # USAR TOLERÂNCIAS FIXAS: 2 dias e similaridade 70%
             resultados_heurístico = analyzer.matching_heuristico(
                 extrato_filtrado, contabil_filtrado, 
                 resultados_exato['nao_matchados_extrato'],
                 resultados_exato['nao_matchados_contabil'],
-                tolerancia_data, tolerancia_valor, similaridade_minima
+                tolerancia_dias=2,  # FIXO
+                tolerancia_valor=tolerancia_valor_abs,
+                similaridade_minima=70  # FIXO
             )
             progress_bar.progress(80)
             
@@ -416,15 +324,12 @@ def main():
             st.rerun()
             
         except Exception as e:
-            st.error(f"Erro na análise: {str(e)}")
-            progress_bar.progress(0)
-            
-        except Exception as e:
             st.error(f"❌ Erro na análise: {str(e)}")
             st.info("💡 Dica: Verifique se os dados foram importados corretamente")
             import traceback
             st.code(traceback.format_exc())
 
+    # [O RESTANTE DO CÓDIGO PERMANECE IGUAL...]
     # Mostrar resultados se disponíveis
     if 'resultados_analise' in st.session_state:
         st.divider()
@@ -436,25 +341,29 @@ def main():
         
         # Métricas principais
         col1, col2, col3, col4 = st.columns(4)
-        
+
         with col1:
             total_extrato = len(extrato_filtrado)
             match_extrato = len(resultados_finais['matches'])
             st.metric("Transações Analisadas", total_extrato, f"{match_extrato} com correspondência")
-        
+
         with col2:
             total_contabil = len(contabil_filtrado)
             match_contabil = sum(len(match['ids_contabil']) for match in resultados_finais['matches'])
             st.metric("Lançamentos Analisados", total_contabil, f"{match_contabil} com correspondência")
-        
+
         with col3:
             taxa_cobertura = (match_extrato / total_extrato * 100) if total_extrato > 0 else 0
             st.metric("Cobertura de Análise", f"{taxa_cobertura:.1f}%")
-        
+
         with col4:
-            excecoes = len(resultados_finais['excecoes'])
-            st.metric("Divergências Identificadas", excecoes)
-        
+            # CORREÇÃO: Contar itens individuais, não tipos de divergência
+            total_itens_divergentes = 0
+            for excecao in resultados_finais.get('excecoes', []):
+                total_itens_divergentes += len(excecao.get('ids_envolvidos', []))
+            
+            st.metric("Itens em Divergência", total_itens_divergentes)
+                
         # --- CSS de Estilização das Abas ---
         st.markdown("""
         <style>
@@ -518,36 +427,88 @@ def main():
                 matches_df = pd.DataFrame(matches_data)
                 st.dataframe(matches_df, width='stretch')
                 
-                # Detalhes expandíveis
-                with st.expander("🔍 Ver Detalhes Completos das Correspondências"):
+                # Detalhes expandíveis - MODIFICADO: MOSTRAR TODAS AS CORRESPONDÊNCIAS
+                with st.expander("🔍 Ver Detalhes Completos de Todas as Correspondências"):
+                    st.subheader(f"📋 Detalhes de Todas as {len(resultados_finais['matches'])} Correspondências")
+                    
                     for i, match in enumerate(resultados_finais['matches']):
-                        st.markdown(f"**Correspondência {i+1} - {match['tipo_match']}**")
-                        st.write(f"**Camada:** {match['camada']} | **Confiança:** {match['confianca']}%")
-                        st.write(f"**Justificativa:** {match['explicacao']}")
+                        # Criar um container para cada correspondência
+                        with st.container():
+                            st.markdown(f"### 📌 Correspondência {i+1} - {match['tipo_match']}")
+                            
+                            # Informações principais em colunas
+                            col_info1, col_info2, col_info3 = st.columns(3)
+                            
+                            with col_info1:
+                                st.metric("Camada", match['camada'])
+                            with col_info2:
+                                st.metric("Confiança", f"{match['confianca']}%")
+                            with col_info3:
+                                st.metric("Valor Total", f"R$ {match['valor_total']:,.2f}")
+                            
+                            # Justificativa
+                            st.write(f"**🔍 Justificativa:** {match['explicacao']}")
+                            
+                            # Transações envolvidas
+                            col_trans1, col_trans2 = st.columns(2)
+                            
+                            with col_trans1:
+                                st.write("**🏦 Transações Bancárias:**")
+                                transacoes_extrato = extrato_filtrado[extrato_filtrado['id'].isin(match['ids_extrato'])]
+                                
+                                if len(transacoes_extrato) > 0:
+                                    for _, transacao in transacoes_extrato.iterrows():
+                                        descricao = transacao.get('descricao', 'N/A')
+                                        data_str = transacao['data'].strftime('%d/%m/%Y') if hasattr(transacao['data'], 'strftime') else str(transacao['data'])
+                                        valor_original = transacao.get('valor_original', transacao['valor'])
+                                        tipo_operacao = transacao.get('tipo_operacao', 'N/A')
+                                        
+                                        st.write(f"""
+                                        - **Valor:** R$ {valor_original:,.2f}
+                                        - **Data:** {data_str}
+                                        - **Tipo:** {tipo_operacao}
+                                        - **Descrição:** {descricao[:80]}{'...' if len(descricao) > 80 else ''}
+                                        """)
+                                else:
+                                    st.write("ℹ️ Nenhuma transação bancária encontrada")
+                            
+                            with col_trans2:
+                                st.write("**📊 Lançamentos Contábeis:**")
+                                transacoes_contabil = contabil_filtrado[contabil_filtrado['id'].isin(match['ids_contabil'])]
+                                
+                                if len(transacoes_contabil) > 0:
+                                    for _, lancamento in transacoes_contabil.iterrows():
+                                        descricao = lancamento.get('descricao', 'N/A')
+                                        data_str = lancamento['data'].strftime('%d/%m/%Y') if hasattr(lancamento['data'], 'strftime') else str(lancamento['data'])
+                                        valor_original = lancamento.get('valor_original', lancamento['valor'])
+                                        
+                                        st.write(f"""
+                                        - **Valor:** R$ {valor_original:,.2f}
+                                        - **Data:** {data_str}
+                                        - **Descrição:** {descricao[:80]}{'...' if len(descricao) > 80 else ''}
+                                        """)
+                                else:
+                                    st.write("ℹ️ Nenhum lançamento contábil encontrado")
+                            
+                            # Estatísticas da correspondência
+                            col_stats1, col_stats2 = st.columns(2)
+                            
+                            with col_stats1:
+                                st.write(f"**📊 Estatísticas:**")
+                                st.write(f"- Transações bancárias: {len(match['ids_extrato'])}")
+                                st.write(f"- Lançamentos contábeis: {len(match['ids_contabil'])}")
+                                st.write(f"- Tipo de match: {match['tipo_match']}")
+                            
+                            with col_stats2:
+                                st.write(f"**🔑 Chave de Identificação:**")
+                                st.write(f"`{match.get('chave_match', 'N/A')}`")
+                            
+                            # Divisor entre correspondências (exceto a última)
+                            if i < len(resultados_finais['matches']) - 1:
+                                st.divider()
                         
-                        # Mostrar transações envolvidas
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            st.write("**🏦 Transações Bancárias:**")
-                            transacoes_extrato = extrato_filtrado[extrato_filtrado['id'].isin(match['ids_extrato'])]
-                            for _, transacao in transacoes_extrato.iterrows():
-                                descricao = transacao.get('descricao', 'N/A')
-                                data_str = transacao['data'].strftime('%d/%m') if hasattr(transacao['data'], 'strftime') else str(transacao['data'])
-                                valor_original = transacao.get('valor_original', transacao['valor'])
-                                st.write(f"• R$ {valor_original:,.2f} | {data_str} | {descricao[:30]}...")
-                        
-                        with col_b:
-                            st.write("**📊 Lançamentos Contábeis:**")
-                            transacoes_contabil = contabil_filtrado[contabil_filtrado['id'].isin(match['ids_contabil'])]
-                            for _, lancamento in transacoes_contabil.iterrows():
-                                descricao = lancamento.get('descricao', 'N/A')
-                                data_str = lancamento['data'].strftime('%d/%m') if hasattr(lancamento['data'], 'strftime') else str(lancamento['data'])
-                                valor_original = lancamento.get('valor_original', lancamento['valor'])
-                                st.write(f"• R$ {valor_original:,.2f} | {data_str} | {descricao[:30]}...")
-                        
-                        st.divider()
             else:
-                st.info("ℹ️ Nenhuma correspondência identificada com os critérios atuais.")
+                st.info("ℹ️ Nenhuma correspondência identificada com os critérios atuais.")        
         
         with aba2:
             st.subheader("🔍 Análise Detalhada das Divergências")
@@ -675,84 +636,116 @@ def main():
             st.header("📈 Dashboard Interativo de Análise")
             
             if 'resultados_analise' in st.session_state:
-                dashboard = get_dashboard()
-                
-                # Controles do dashboard
-                col_controls1, col_controls2, col_controls3 = st.columns(3)
-                
-                with col_controls1:
-                    show_overview = st.checkbox("Visão Geral", value=True)
-                with col_controls2:
-                    show_timeline = st.checkbox("Análise Temporal", value=True)
-                with col_controls3:
-                    show_distribution = st.checkbox("Distribuição de Valores", value=True)
-                
-                # Visão Geral
-                if show_overview:
-                    st.subheader("📊 Visão Geral da Conciliação")
-                    overview_fig = dashboard.create_reconciliation_overview(
-                        st.session_state.resultados_analise,
-                        st.session_state.extrato_filtrado,
-                        st.session_state.contabil_filtrado
-                    )
-                    st.plotly_chart(overview_fig, use_container_width=True)
-                
-                # Análise Temporal
-                if show_timeline:
-                    st.subheader("📈 Análise Temporal")
-                    timeline_fig = dashboard.create_timeline_analysis(
-                        st.session_state.extrato_filtrado,
-                        st.session_state.contabil_filtrado
-                    )
-                    st.plotly_chart(timeline_fig, use_container_width=True)
-                
-                # Distribuição de Valores
-                if show_distribution:
-                    st.subheader("📦 Distribuição de Valores")
-                    distribution_fig = dashboard.create_value_distribution(
-                        st.session_state.extrato_filtrado,
-                        st.session_state.contabil_filtrado
-                    )
-                    st.plotly_chart(distribution_fig, use_container_width=True)
-                
-                # Análise de Confiança (apenas se houver matches)
-                if st.session_state.resultados_analise.get('matches'):
-                    st.subheader("🎯 Análise de Confiança")
-                    confidence_fig = dashboard.create_confidence_analysis(st.session_state.resultados_analise)
-                    st.plotly_chart(confidence_fig, use_container_width=True)
-                
-                # Métricas Comparativas
-                st.subheader("📋 Métricas Comparativas")
-                metrics_fig = dashboard.create_comparison_metrics(
-                    st.session_state.extrato_filtrado,
-                    st.session_state.contabil_filtrado
-                )
-                st.plotly_chart(metrics_fig, use_container_width=True)
-                # Estatísticas Rápidas
-                col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-                
-                with col_stat1:
-                    total_extrato = len(st.session_state.extrato_filtrado)
-                    st.metric("Transações Bancárias", total_extrato)
-                
-                with col_stat2:
-                    total_contabil = len(st.session_state.contabil_filtrado)
-                    st.metric("Lançamentos Contábeis", total_contabil)
-                
-                with col_stat3:
-                    total_matches = len(st.session_state.resultados_analise.get('matches', []))
-                    st.metric("Correspondências", total_matches)
-                
-                with col_stat4:
-                    taxa_conciliação = (total_matches / total_extrato * 100) if total_extrato > 0 else 0
-                    st.metric("Taxa de Conciliação", f"{taxa_conciliação:.1f}%")
+                try:
+                    dashboard = get_dashboard()
+                    
+                    # Controles do dashboard
+                    col_controls1, col_controls2, col_controls3 = st.columns(3)
+                    
+                    with col_controls1:
+                        show_overview = st.checkbox("Visão Geral", value=True, key="overview")
+                    with col_controls2:
+                        show_timeline = st.checkbox("Análise Temporal", value=True, key="timeline")
+                    with col_controls3:
+                        show_distribution = st.checkbox("Distribuição de Valores", value=True, key="distribution")
+                    
+                    # ADICIONAR: Verificação de dados antes de criar visualizações
+                    extrato_filtrado = st.session_state.get('extrato_filtrado')
+                    contabil_filtrado = st.session_state.get('contabil_filtrado')
+                    
+                    # ADICIONAR DEBUG
+                    with st.sidebar.expander("🔍 Debug Similaridades", expanded=False):
+                        debug_matching_similaridades(
+                            st.session_state.extrato_filtrado,
+                            st.session_state.contabil_filtrado, 
+                            st.session_state.resultados_analise
+                        )
+
+                    if extrato_filtrado is not None and len(extrato_filtrado) > 0:
+                        
+                        # Visão Geral
+                        if show_overview:
+                            st.subheader("📊 Visão Geral da Conciliação")
+                            overview_fig = dashboard.create_reconciliation_overview(
+                                st.session_state.resultados_analise,
+                                extrato_filtrado,
+                                contabil_filtrado
+                            )
+                            if overview_fig:
+                                st.plotly_chart(overview_fig, use_container_width=True)
+                            else:
+                                st.warning("Não foi possível gerar a visão geral")
+                        
+                        # Análise Temporal
+                        if show_timeline and 'data' in extrato_filtrado.columns:
+                            st.subheader("📈 Análise Temporal")
+                            timeline_fig = dashboard.create_timeline_analysis(
+                                extrato_filtrado,
+                                contabil_filtrado
+                            )
+                            if timeline_fig:
+                                st.plotly_chart(timeline_fig, use_container_width=True)
+                            else:
+                                st.warning("Não foi possível gerar a análise temporal")
+                        
+                        # Distribuição de Valores
+                        if show_distribution:
+                            st.subheader("📦 Distribuição de Valores")
+                            distribution_fig = dashboard.create_value_distribution(
+                                extrato_filtrado,
+                                contabil_filtrado
+                            )
+                            if distribution_fig:
+                                st.plotly_chart(distribution_fig, use_container_width=True)
+                            else:
+                                st.warning("Não foi possível gerar a distribuição de valores")
+                        
+                        # Análise de Confiança (apenas se houver matches)
+                        if st.session_state.resultados_analise.get('matches'):
+                            st.subheader("🎯 Análise de Confiança")
+                            confidence_fig = dashboard.create_confidence_analysis(st.session_state.resultados_analise)
+                            if confidence_fig:
+                                st.plotly_chart(confidence_fig, use_container_width=True)
+                        
+                        # Métricas Comparativas
+                        st.subheader("📋 Métricas Comparativas")
+                        metrics_fig = dashboard.create_comparison_metrics(
+                            extrato_filtrado,
+                            contabil_filtrado
+                        )
+                        if metrics_fig:
+                            st.plotly_chart(metrics_fig, use_container_width=True)
+                        
+                        # Estatísticas Rápidas
+                        col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+                        
+                        with col_stat1:
+                            total_extrato = len(st.session_state.extrato_filtrado)
+                            st.metric("Transações Bancárias", total_extrato)
+                        
+                        with col_stat2:
+                            total_contabil = len(st.session_state.contabil_filtrado)
+                            st.metric("Lançamentos Contábeis", total_contabil)
+                        
+                        with col_stat3:
+                            total_matches = len(st.session_state.resultados_analise.get('matches', []))
+                            st.metric("Correspondências", total_matches)
+                        
+                        with col_stat4:
+                            taxa_conciliação = (total_matches / total_extrato * 100) if total_extrato > 0 else 0
+                            st.metric("Taxa de Conciliação", f"{taxa_conciliação:.1f}%")
+                    
+                    else:
+                        st.warning("📊 Dados insuficientes para gerar o dashboard. Verifique se há dados carregados e processados.")
+                        
+                except Exception as e:
+                    st.error(f"❌ Erro ao carregar dashboard: {str(e)}")
+                    st.info("💡 Tente executar a análise novamente ou verifique os dados carregados")
             
             else:
                 st.info("💡 Execute a análise de correspondências primeiro para visualizar o dashboard.")
                 if st.button("🔍 Executar Análise", key="btn_analise_dashboard"):
-                    st.switch_page("pages/analise_dados.py")
-        
-        
+                    st.rerun()
         
         
         with aba5:
@@ -760,9 +753,9 @@ def main():
             
             st.json({
                 "configuracoes_aplicadas": {
-                    "tolerancia_data_dias": tolerancia_data,
-                    "tolerancia_valor_reais": tolerancia_valor,
-                    "similaridade_minima_percentual": similaridade_minima
+                    "tolerancia_percentual": f"{tolerancia_percentual}%",
+                    "tolerancia_data_dias": 2,  # FIXO
+                    "similaridade_minima_percentual": 70  # FIXO
                 },
                 "estatisticas_processamento": {
                     "transacoes_analisadas": len(extrato_filtrado),
@@ -805,6 +798,157 @@ def main():
                 st.button("📄 Gerar Relatório", disabled=True, width='stretch')
                 st.caption("Execute a análise primeiro")
 
+
+def debug_matching_similaridades(extrato_df, contabil_df, resultados_analise):
+    """Debug detalhado do matching por similaridade"""
+    
+    st.sidebar.header("🔍 Debug - Similaridades")
+    
+    # Encontrar transações do mesmo dia com valores próximos
+    st.sidebar.write("**Transações do mesmo dia:**")
+    
+    for data_extrato in extrato_df['data'].unique():
+        transacoes_dia_extrato = extrato_df[extrato_df['data'] == data_extrato]
+        transacoes_dia_contabil = contabil_df[contabil_df['data'] == data_extrato]
+        
+        for _, extrato_row in transacoes_dia_extrato.iterrows():
+            for _, contabil_row in transacoes_dia_contabil.iterrows():
+                valor_extrato = abs(extrato_row.get('valor_original', extrato_row.get('valor', 0)))
+                valor_contabil = abs(contabil_row.get('valor_original', contabil_row.get('valor', 0)))
+                
+                diff_valor = abs(valor_extrato - valor_contabil)
+                diff_percent = (diff_valor / valor_extrato * 100) if valor_extrato > 0 else 100
+                
+                # Se diferença for pequena (até 30%) e mesma data
+                if diff_percent <= 30 and diff_valor <= 10:
+                    similaridade = SequenceMatcher(
+                        None, 
+                        extrato_row.get('descricao', '').lower(), 
+                        contabil_row.get('descricao', '').lower()
+                    ).ratio() * 100
+                    
+                    st.sidebar.write(f"**Data:** {data_extrato.strftime('%d/%m')}")
+                    st.sidebar.write(f"**Extrato:** R$ {valor_extrato:.2f} - {extrato_row.get('descricao', '')[:30]}")
+                    st.sidebar.write(f"**Contábil:** R$ {valor_contabil:.2f} - {contabil_row.get('descricao', '')[:30]}")
+                    st.sidebar.write(f"**Diff:** R$ {diff_valor:.2f} ({diff_percent:.1f}%) | **Similaridade:** {similaridade:.1f}%")
+                    st.sidebar.write("---")
+
+# [AS FUNÇÕES AUXILIARES PERMANECEM AS MESMAS...]
+def gerar_tabelas_divergencias_melhoradas(resultados_analise, extrato_df, contabil_df):
+    """
+    Gera tabelas de divergências mais explicativas e organizadas
+    """
+    # Identificar transações não matchadas
+    extrato_match_ids = set()
+    contabil_match_ids = set()
+    
+    for match in resultados_analise['matches']:
+        extrato_match_ids.update(match['ids_extrato'])
+        contabil_match_ids.update(match['ids_contabil'])
+    
+    # Tabela 1: Presente no bancário mas não no contábil
+    extrato_nao_match = extrato_df[~extrato_df['id'].isin(extrato_match_ids)]
+    tabela_bancario_sem_contabil = _criar_tabela_bancario_sem_contabil(extrato_nao_match)
+    
+    # Tabela 2: Presente no contábil mas não no bancário
+    contabil_nao_match = contabil_df[~contabil_df['id'].isin(contabil_match_ids)]
+    tabela_contabil_sem_bancario = _criar_tabela_contabil_sem_bancario(contabil_nao_match)
+    
+    # Tabela 3: Possíveis correspondências por similaridade
+    tabela_similaridades = _criar_tabela_similaridades(extrato_nao_match, contabil_nao_match)
+    
+    return {
+        'bancario_sem_contabil': tabela_bancario_sem_contabil,
+        'contabil_sem_bancario': tabela_contabil_sem_bancario,
+        'possiveis_similaridades': tabela_similaridades
+    }
+
+def _criar_tabela_bancario_sem_contabil(extrato_nao_match):
+    """Cria tabela para valores presentes no bancário mas não no contábil - TERMINOLOGIA MELHORADA"""
+    tabela = []
+    
+    for _, transacao in extrato_nao_match.iterrows():
+        data_str = transacao['data'].strftime('%d/%m/%Y') if hasattr(transacao['data'], 'strftime') else str(transacao['data'])
+        
+        tabela.append({
+            'Tipo_Divergência': '🔴 Mov. Bancária sem Lançamento',
+            'Data': data_str,
+            'Valor_Bancário': f"R$ {transacao['valor']:,.2f}",
+            'Descrição_Bancário': transacao.get('descricao', 'N/A'),
+            'Origem': '🏦 Extrato Bancário',
+            'Status': 'Não conciliado',
+            'Recomendação': 'Verificar se é despesa não lançada, receita não identificada ou lançamento em período diferente',
+            'Ação_Sugerida': 'Incluir no sistema contábil ou identificar natureza da transação'
+        })
+    
+    return pd.DataFrame(tabela)
+
+def _criar_tabela_contabil_sem_bancario(contabil_nao_match):
+    """Cria tabela para valores presentes no contábil mas não no bancário - TERMINOLOGIA MELHORADA"""
+    tabela = []
+    
+    for _, lancamento in contabil_nao_match.iterrows():
+        data_str = lancamento['data'].strftime('%d/%m/%Y') if hasattr(lancamento['data'], 'strftime') else str(lancamento['data'])
+        
+        tabela.append({
+            'Tipo_Divergência': '🔴 Lançamento sem Mov. Bancária',
+            'Data': data_str,
+            'Valor_Contábil': f"R$ {lancamento['valor']:,.2f}",
+            'Descrição_Contábil': lancamento.get('descricao', 'N/A'),
+            'Origem': '📊 Sistema Contábil',
+            'Status': 'Não conciliado',
+            'Recomendação': 'Verificar se é provisionamento, lançamento futuro, ajuste contábil ou erro de lançamento',
+            'Ação_Sugerida': 'Aguardar compensação, corrigir lançamento ou verificar periodicidade'
+        })
+    
+    return pd.DataFrame(tabela)
+
+def _criar_tabela_similaridades(extrato_nao_match, contabil_nao_match):
+    """Identifica possíveis correspondências por similaridade - TERMINOLOGIA MELHORADA"""
+    tabela = []
+    
+    for _, extrato_row in extrato_nao_match.iterrows():
+        valor_extrato = abs(extrato_row['valor'])
+        data_extrato = extrato_row['data']
+        
+        for _, contabil_row in contabil_nao_match.iterrows():
+            valor_contabil = abs(contabil_row['valor'])
+            data_contabil = contabil_row['data']
+            
+            diff_valor_percent = abs(valor_extrato - valor_contabil) / valor_extrato * 100 if valor_extrato > 0 else 100
+            diff_dias = abs((data_extrato - data_contabil).days) if hasattr(data_extrato, 'strftime') and hasattr(data_contabil, 'strftime') else 30
+            
+            if diff_valor_percent <= 10 and diff_dias <= 5:
+                similaridade = _calcular_similaridade_texto(
+                    extrato_row.get('descricao', ''),
+                    contabil_row.get('descricao', '')
+                )
+                
+                if similaridade >= 40:
+                    confianca_ajuste = (100 - diff_valor_percent) * (100 - diff_dias * 2) * similaridade / 10000
+                    
+                    tabela.append({
+                        'Tipo_Analise': '🟡 Possível Correspondência',
+                        'Similaridade_Detectada': f"{similaridade:.1f}%",
+                        'Data_Bancário': data_extrato.strftime('%d/%m/%Y') if hasattr(data_extrato, 'strftime') else str(data_extrato),
+                        'Data_Contábil': data_contabil.strftime('%d/%m/%Y') if hasattr(data_contabil, 'strftime') else str(data_contabil),
+                        'Valor_Bancário': f"R$ {extrato_row['valor']:,.2f}",
+                        'Valor_Contábil': f"R$ {contabil_row['valor']:,.2f}",
+                        'Descrição_Bancário': extrato_row.get('descricao', '')[:50] + "..." if len(extrato_row.get('descricao', '')) > 50 else extrato_row.get('descricao', ''),
+                        'Descrição_Contábil': contabil_row.get('descricao', '')[:50] + "..." if len(contabil_row.get('descricao', '')) > 50 else contabil_row.get('descricao', ''),
+                        'Diferença_Valor': f"R$ {abs(extrato_row['valor'] - contabil_row['valor']):,.2f}",
+                        'Diferença_Dias': diff_dias,
+                        'Confiança_Ajuste': f"{confianca_ajuste:.1f}%",
+                        'Recomendação': 'Analisar manualmente - possível correspondência que precisa de validação'
+                    })
+    
+    return pd.DataFrame(tabela)
+
+def _calcular_similaridade_texto(texto1, texto2):
+    """Calcula similaridade entre textos"""
+    if not texto1 or not texto2:
+        return 0.0
+    return SequenceMatcher(None, texto1.lower(), texto2.lower()).ratio() * 100
 
 if __name__ == "__main__":
     main()
