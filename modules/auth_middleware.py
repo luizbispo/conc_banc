@@ -133,9 +133,60 @@ def init_security_tables(conn: Optional[sqlite3.Connection] = None) -> None:
             locked_until TIMESTAMP
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS revoked_tokens (
+            jti TEXT PRIMARY KEY,
+            revoked_at TIMESTAMP NOT NULL,
+            expires_at TIMESTAMP NOT NULL
+        )
+    ''')
     conn.commit()
     if owns_conn:
         conn.close()
+
+# --- REVOGAÇÃO DE TOKEN NO SERVIDOR ---
+# O JWT tem validade de 24h (JWT_EXPIRATION_HOURS em app.py) e, até aqui,
+# "logout" só limpava o st.session_state local: o token continuava
+# criptograficamente válido no servidor até expirar sozinho — quem
+# copiasse o token antes do logout podia reutilizá-lo por até 24h. Uma
+# lista de revogação por jti (JWT ID único por token, ver
+# generate_jti/app.py) fecha essa janela sem precisar de estado de sessão
+# no servidor para todo login (só para os tokens efetivamente
+# revogados).
+
+def generate_jti() -> str:
+    """Gera um identificador único e imprevisível para um novo token JWT."""
+    return secrets.token_hex(16)
+
+def revoke_token(jti: str, expires_at) -> None:
+    """Marca um token (pelo jti) como revogado até sua própria expiração
+    natural. Também remove entradas já expiradas da tabela, para que ela
+    não cresça indefinidamente com tokens que já seriam recusados de
+    qualquer forma pela expiração do JWT."""
+    if not jti:
+        return
+    now = datetime.now()
+    expires_at_str = expires_at.isoformat() if hasattr(expires_at, 'isoformat') else str(expires_at)
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('DELETE FROM revoked_tokens WHERE expires_at <= ?', (now.isoformat(),))
+    c.execute('''
+        INSERT OR REPLACE INTO revoked_tokens (jti, revoked_at, expires_at)
+        VALUES (?, ?, ?)
+    ''', (jti, now.isoformat(), expires_at_str))
+    conn.commit()
+    conn.close()
+
+def is_token_revoked(jti: Optional[str]) -> bool:
+    """Verifica se um token (pelo jti) está na lista de revogação."""
+    if not jti:
+        return False
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('SELECT 1 FROM revoked_tokens WHERE jti = ?', (jti,))
+    row = c.fetchone()
+    conn.close()
+    return row is not None
 
 def _normalize_identifier(identifier: str) -> str:
     return (identifier or "").strip().lower()
@@ -247,6 +298,13 @@ def enforce_auth() -> None:
         st.stop()
     except jwt.InvalidTokenError:
         st.error("❌ Token inválido. Faça login novamente.")
+        _clear_session()
+        if st.button("🔄 Fazer Login"):
+            st.switch_page("app.py")
+        st.stop()
+
+    if is_token_revoked(payload.get('jti')):
+        st.error("🔒 Sessão encerrada (logout). Faça login novamente.")
         _clear_session()
         if st.button("🔄 Fazer Login"):
             st.switch_page("app.py")

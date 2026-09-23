@@ -18,6 +18,9 @@ from modules.auth_middleware import (
     record_login_failure,
     record_login_success,
     revalidate_user,
+    generate_jti,
+    revoke_token,
+    is_token_revoked,
 )
 from modules.audit_logger import get_audit_logger, AuditAction, AuditSeverity
 
@@ -225,6 +228,7 @@ def login_user(username: str, password: str) -> tuple[bool, Optional[dict], str]
         'user_id': user_id,
         'username': username_db,
         'role': role,
+        'jti': generate_jti(),  # necessário para revogar este token específico no logout
         'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
     }
 
@@ -305,8 +309,23 @@ def register_user(username: str, email: str, password: str, full_name: str) -> t
         return False, f"Erro ao registrar usuário: {str(e)}"
 
 def logout_user():
-    """Realiza logout do usuário"""
+    """Realiza logout do usuário.
+
+    Além de limpar a sessão local, revoga o token no servidor (lista de
+    revogação por jti) para que ele não possa mais ser reutilizado antes
+    de expirar naturalmente (até 24h) — antes, "logout" só apagava o
+    st.session_state local; o token JWT continuava criptograficamente
+    válido no servidor até o fim das 24h."""
     user = st.session_state.get('user')
+    token = st.session_state.get('token')
+    if token:
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            exp_timestamp = payload.get('exp')
+            if payload.get('jti') and exp_timestamp:
+                revoke_token(payload['jti'], datetime.utcfromtimestamp(exp_timestamp))
+        except jwt.InvalidTokenError:
+            pass  # token já inválido/expirado: nada a revogar
     if user:
         get_audit_logger().log_action(
             action=AuditAction.USER_ACTION,
@@ -390,6 +409,11 @@ def check_authentication():
     is_valid, payload = verify_token(token)
 
     if not is_valid:
+        st.session_state.pop('token', None)
+        st.session_state.pop('user', None)
+        return False
+
+    if is_token_revoked(payload.get('jti')):
         st.session_state.pop('token', None)
         st.session_state.pop('user', None)
         return False

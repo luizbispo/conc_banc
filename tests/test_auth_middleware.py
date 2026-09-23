@@ -277,3 +277,65 @@ def test_revalidate_user_returns_none_for_deleted_user(db_path):
     conn.close()
 
     assert am.revalidate_user(user_id) is None
+
+
+# --- Revogação de token no logout (issue XCRE-42, Parte A, item 5a) ---
+# Antes "logout" só limpava o st.session_state local: um token copiado
+# antes do logout continuava válido no servidor por até 24h (JWT sem
+# revogação). Agora existe uma lista de revogação por jti, persistida em
+# SQLite (mesmo banco de segurança das outras tabelas desta issue).
+
+import datetime as _dt
+
+
+def test_generate_jti_produces_unique_values():
+    valores = {am.generate_jti() for _ in range(20)}
+    assert len(valores) == 20
+
+
+def test_token_nao_revogado_por_padrao(db_path):
+    assert am.is_token_revoked(am.generate_jti()) is False
+
+
+def test_revoke_token_marca_como_revogado(db_path):
+    jti = am.generate_jti()
+    expira_em = _dt.datetime.now() + _dt.timedelta(hours=24)
+
+    assert am.is_token_revoked(jti) is False
+    am.revoke_token(jti, expira_em)
+    assert am.is_token_revoked(jti) is True
+
+
+def test_revoke_token_nao_afeta_outros_tokens(db_path):
+    jti_a = am.generate_jti()
+    jti_b = am.generate_jti()
+    expira_em = _dt.datetime.now() + _dt.timedelta(hours=24)
+
+    am.revoke_token(jti_a, expira_em)
+
+    assert am.is_token_revoked(jti_a) is True
+    assert am.is_token_revoked(jti_b) is False
+
+
+def test_revoke_token_ignora_jti_vazio(db_path):
+    # Não deve levantar exceção nem marcar "None"/"" como revogado.
+    am.revoke_token(None, _dt.datetime.now())
+    assert am.is_token_revoked(None) is False
+    assert am.is_token_revoked("") is False
+
+
+def test_revoke_token_remove_entradas_ja_expiradas(db_path):
+    """A limpeza de entradas expiradas não deve remover uma revogação
+    ainda vigente nem impedir novas revogações de serem registradas."""
+    jti_expirado = am.generate_jti()
+    am.revoke_token(jti_expirado, _dt.datetime.now() - _dt.timedelta(hours=1))
+
+    jti_vigente = am.generate_jti()
+    am.revoke_token(jti_vigente, _dt.datetime.now() + _dt.timedelta(hours=24))
+
+    conn = sqlite3.connect(db_path)
+    linhas = conn.execute("SELECT jti FROM revoked_tokens").fetchall()
+    conn.close()
+
+    assert (jti_expirado,) not in linhas
+    assert (jti_vigente,) in linhas
