@@ -1,6 +1,9 @@
 # modules/audit_logger.py
 import pandas as pd
 import json
+import os
+import copy
+import sqlite3
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import logging
@@ -35,13 +38,62 @@ class AuditSeverity(Enum):
 class AuditLogger:
     """
     Logger de auditoria para registrar todas as ações do sistema
-    Mantém trilha completa para compliance e auditoria
+    Mantém trilha completa para compliance e auditoria.
+
+    A trilha é persistida em SQLite (append-only) desde a criação: antes,
+    tudo ficava só em self.audit_log (memória do processo), então um
+    reinício apagava a auditoria inteira e não havia nenhuma chamada real
+    a este logger no fluxo de login/upload/matching — só as definições
+    existiam. Isso foi corrigido tanto na persistência quanto na
+    integração (ver app.py e pages/importacao_dados.py).
     """
-    
-    def __init__(self):
+
+    def __init__(self, db_path: Optional[str] = None):
         self.audit_log = []
         self.session_id = str(uuid.uuid4())
-        
+        self.db_path = db_path or os.getenv("CONCILIACAO_AUDIT_DB_PATH", "audit_log.db")
+        self._init_storage()
+
+    def _init_storage(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS audit_log (
+                log_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                action TEXT NOT NULL,
+                user TEXT NOT NULL,
+                description TEXT,
+                details TEXT,
+                severity TEXT,
+                transaction_ids TEXT,
+                metadata TEXT
+            )
+        ''')
+        conn.commit()
+        conn.close()
+
+    def _persist(self, log_entry: Dict[str, Any]) -> None:
+        conn = sqlite3.connect(self.db_path)
+        conn.execute('''
+            INSERT INTO audit_log
+                (log_id, session_id, timestamp, action, user, description, details, severity, transaction_ids, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            log_entry['log_id'],
+            log_entry['session_id'],
+            log_entry['timestamp'],
+            log_entry['action'],
+            log_entry['user'],
+            log_entry['description'],
+            json.dumps(log_entry['details'], default=str, ensure_ascii=False),
+            log_entry['severity'],
+            json.dumps(log_entry['transaction_ids'], default=str, ensure_ascii=False),
+            json.dumps(log_entry['metadata'], default=str, ensure_ascii=False),
+        ))
+        conn.commit()
+        conn.close()
+
     def log_action(self, 
                    action: AuditAction,
                    user: str = "Sistema",
@@ -83,7 +135,8 @@ class AuditLogger:
         }
         
         self.audit_log.append(log_entry)
-        
+        self._persist(log_entry)
+
         # Log também no sistema de logging padrão
         log_message = f"AUDIT [{severity.value}] {action.value}: {description}"
         if severity == AuditSeverity.ERROR:
@@ -244,26 +297,38 @@ class AuditLogger:
             severity=AuditSeverity.ERROR
         )
     
-    def get_audit_trail(self, 
+    def get_audit_trail(self,
                        filters: Dict[str, Any] = None,
                        sort_by: str = "timestamp",
-                       ascending: bool = False) -> pd.DataFrame:
+                       ascending: bool = False,
+                       persisted: bool = True) -> pd.DataFrame:
         """
         Retorna a trilha de auditoria como DataFrame
-        
+
         Args:
             filters: Filtros para aplicar (ex: {'action': 'FILE_UPLOAD', 'severity': 'ERROR'})
             sort_by: Campo para ordenação
             ascending: Ordem ascendente ou descendente
-            
+            persisted: se True (padrão), lê o histórico completo persistido em
+                disco (sobrevive a reinícios); se False, usa apenas o cache em
+                memória desta instância/sessão
+
         Returns:
             DataFrame com logs de auditoria
         """
-        if not self.audit_log:
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(self.audit_log)
-        
+        if persisted:
+            conn = sqlite3.connect(self.db_path)
+            df = pd.read_sql_query("SELECT * FROM audit_log", conn)
+            conn.close()
+            if df.empty:
+                return df
+            for col in ('details', 'transaction_ids', 'metadata'):
+                df[col] = df[col].apply(lambda v: json.loads(v) if v else ({} if col != 'transaction_ids' else []))
+        else:
+            if not self.audit_log:
+                return pd.DataFrame()
+            df = pd.DataFrame(self.audit_log)
+
         # Aplicar filtros
         if filters:
             for key, value in filters.items():
@@ -303,30 +368,39 @@ class AuditLogger:
         timestamps = [datetime.fromisoformat(log['timestamp']) for log in self.audit_log]
         return (max(timestamps) - min(timestamps)).total_seconds()
     
-    def export_audit_log(self, 
+    def export_audit_log(self,
                         format: str = 'json',
-                        include_details: bool = True) -> str:
+                        include_details: bool = True,
+                        persisted: bool = True) -> str:
         """
         Exporta o log de auditoria
-        
+
         Args:
             format: Formato de exportação ('json', 'csv')
             include_details: Incluir detalhes completos
-            
+            persisted: exportar o histórico completo persistido (padrão) em
+                vez de apenas o cache em memória da sessão atual
+
         Returns:
             String com o log exportado
         """
-        if not self.audit_log:
+        source = self.get_audit_trail(persisted=persisted).to_dict('records') if persisted else self.audit_log
+        if not source:
             return ""
-        
-        export_data = self.audit_log.copy()
-        
+
+        # copy.deepcopy: a versão anterior fazia list.copy() (cópia rasa) e
+        # depois log.pop('details', ...) em cada item — como os dicionários
+        # internos continuavam sendo os MESMOS objetos do log original,
+        # isso apagava 'details'/'metadata' também do log em memória, não
+        # só da exportação resumida.
+        export_data = copy.deepcopy(source)
+
         if not include_details:
             # Remover campos detalhados para versão resumida
             for log in export_data:
                 log.pop('details', None)
                 log.pop('metadata', None)
-        
+
         if format == 'json':
             return json.dumps(export_data, indent=2, ensure_ascii=False, default=str)
         elif format == 'csv':
@@ -336,9 +410,16 @@ class AuditLogger:
             raise ValueError(f"Formato não suportado: {format}")
     
     def clear_audit_log(self):
-        """Limpa o log de auditoria (usar com cuidado!)"""
+        """Limpa APENAS o cache em memória da instância atual.
+
+        O histórico persistido (self.db_path, append-only) nunca é apagado
+        por este método — uma trilha de auditoria que pode ser destruída
+        por uma chamada de código não é uma trilha confiável. Antes, este
+        método fazia self.audit_log.clear() sobre a única cópia existente
+        dos dados (não havia persistência), ou seja, apagava a auditoria
+        de verdade."""
         self.audit_log.clear()
-        logger.warning("Log de auditoria limpo")
+        logger.warning("Cache de auditoria em memória limpo; histórico persistido em %s preservado", self.db_path)
 
 # Instância global do logger de auditoria
 _audit_logger = None

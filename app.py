@@ -1,12 +1,24 @@
 # app.py - Aplicação Principal Streamlit com Sistema de Login
 import streamlit as st
-import hashlib
 import sqlite3
 import re
 from datetime import datetime, timedelta
 import jwt
 import os
 from typing import Optional
+from modules.auth_middleware import (
+    SECRET_KEY,
+    JWT_ALGORITHM,
+    hash_password,
+    verify_password,
+    get_db_connection,
+    init_security_tables,
+    check_login_rate_limit,
+    record_login_failure,
+    record_login_success,
+    revalidate_user,
+)
+from modules.audit_logger import get_audit_logger, AuditAction, AuditSeverity
 
 # Configuração da página
 st.set_page_config(
@@ -17,16 +29,18 @@ st.set_page_config(
 )
 
 # --- CONFIGURAÇÕES DE SEGURANÇA ---
-SECRET_KEY = os.getenv("CONCILIACAO_SECRET_KEY", "chave_secreta_padrao_mudar_em_producao")
-JWT_ALGORITHM = "HS256"
+# SECRET_KEY, hashing de senha e limitação de tentativas agora vêm de
+# modules/auth_middleware.py (fonte única, ver comentários lá) — antes
+# havia uma segunda cópia de SECRET_KEY/hash_password aqui, divergente da
+# de modules/auth_middleware.py.
 JWT_EXPIRATION_HOURS = 24
 
 # --- BANCO DE DADOS DE USUÁRIOS ---
 def init_db():
     """Inicializa o banco de dados de usuários"""
-    conn = sqlite3.connect('users.db')
+    conn = get_db_connection()
     c = conn.cursor()
-    
+
     # Tabela de usuários
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -34,6 +48,7 @@ def init_db():
             username TEXT UNIQUE NOT NULL,
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            password_salt TEXT,
             full_name TEXT NOT NULL,
             role TEXT DEFAULT 'user',
             is_active BOOLEAN DEFAULT 1,
@@ -41,7 +56,13 @@ def init_db():
             last_login TIMESTAMP
         )
     ''')
-    
+
+    # Migração leve para bancos criados antes da coluna password_salt existir
+    c.execute("PRAGMA table_info(users)")
+    existing_cols = {row[1] for row in c.fetchall()}
+    if 'password_salt' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN password_salt TEXT")
+
     # Tabela de sessões
     c.execute('''
         CREATE TABLE IF NOT EXISTS user_sessions (
@@ -53,26 +74,20 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
     ''')
-    
+
+    init_security_tables(conn)
+
     # Inserir usuário admin padrão se não existir
     c.execute("SELECT COUNT(*) FROM users WHERE username = 'admin'")
     if c.fetchone()[0] == 0:
-        password_hash = hash_password("admin123")
+        password_hash, password_salt = hash_password("admin123")
         c.execute('''
-            INSERT INTO users (username, email, password_hash, full_name, role)
-            VALUES (?, ?, ?, ?, ?)
-        ''', ('admin', 'admin@sistema.com', password_hash, 'Administrador', 'admin'))
-    
+            INSERT INTO users (username, email, password_hash, password_salt, full_name, role)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', ('admin', 'admin@sistema.com', password_hash, password_salt, 'Administrador', 'admin'))
+
     conn.commit()
     conn.close()
-
-def hash_password(password: str) -> str:
-    """Cria hash da senha usando SHA-256"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_password(password: str, password_hash: str) -> bool:
-    """Verifica se a senha corresponde ao hash"""
-    return hash_password(password) == password_hash
 
 def validate_email(email: str) -> bool:
     """Valida formato do email"""
@@ -93,55 +108,120 @@ def validate_password(password: str) -> tuple[bool, str]:
 
 # --- SISTEMA DE AUTENTICAÇÃO ---
 def login_user(username: str, password: str) -> tuple[bool, Optional[dict], str]:
-    """Autentica usuário e retorna token JWT"""
-    conn = sqlite3.connect('users.db')
+    """Autentica usuário e retorna token JWT.
+
+    Correções de segurança em relação à versão anterior:
+    - Limitação de tentativas (bloqueio temporário após 5 falhas em 15 min),
+      aplicada pelo identificador digitado, antes de tocar o banco.
+    - Mensagem de erro genérica e idêntica para usuário inexistente, senha
+      incorreta e conta desativada (evita enumeração de contas válidas por
+      diferença de mensagem).
+    - Verificação de senha sempre executada, mesmo quando o usuário não
+      existe (compara contra um hash "dummy"), para reduzir (não eliminar)
+      diferença de tempo de resposta como sinal de enumeração.
+    - Hash de senha salgado (PBKDF2), não mais SHA-256 puro sem salt.
+    - Login bem-sucedido/malsucedido é registrado na trilha de auditoria.
+    """
+    audit = get_audit_logger()
+    genericos = "Usuário ou senha incorretos"
+
+    allowed, retry_after_seconds = check_login_rate_limit(username)
+    if not allowed:
+        minutos = max(1, retry_after_seconds // 60)
+        audit.log_action(
+            action=AuditAction.USER_ACTION,
+            user=username or "desconhecido",
+            description="Login bloqueado por limite de tentativas",
+            severity=AuditSeverity.WARNING,
+        )
+        return False, None, f"Muitas tentativas de login. Tente novamente em {minutos} min."
+
+    conn = get_db_connection()
     c = conn.cursor()
-    
+
     c.execute('''
-        SELECT id, username, email, full_name, role, password_hash, is_active
+        SELECT id, username, email, full_name, role, password_hash, password_salt, is_active
         FROM users WHERE username = ? OR email = ?
     ''', (username, username))
-    
+
     user = c.fetchone()
-    
+
+    # Hash "dummy" para manter o custo de verificação semelhante ao caminho
+    # de usuário existente, mesmo quando o usuário não é encontrado.
+    _dummy_hash, _dummy_salt = hash_password("usuario-nao-existe-nesta-instancia")
+
     if not user:
+        verify_password(password, _dummy_hash, _dummy_salt)
         conn.close()
-        return False, None, "Usuário não encontrado"
-    
-    user_id, username, email, full_name, role, password_hash, is_active = user
-    
+        record_login_failure(username)
+        audit.log_action(
+            action=AuditAction.USER_ACTION,
+            user=username or "desconhecido",
+            description="Falha de login: usuário não encontrado",
+            severity=AuditSeverity.WARNING,
+        )
+        return False, None, genericos
+
+    user_id, username_db, email, full_name, role, password_hash, password_salt, is_active = user
+
+    senha_valida = verify_password(password, password_hash, password_salt)
+
+    if not senha_valida:
+        conn.close()
+        record_login_failure(username)
+        audit.log_action(
+            action=AuditAction.USER_ACTION,
+            user=username_db,
+            description="Falha de login: senha incorreta",
+            severity=AuditSeverity.WARNING,
+        )
+        return False, None, genericos
+
     if not is_active:
         conn.close()
-        return False, None, "Usuário desativado"
-    
-    if not verify_password(password, password_hash):
-        conn.close()
-        return False, None, "Senha incorreta"
-    
+        record_login_failure(username)
+        audit.log_action(
+            action=AuditAction.USER_ACTION,
+            user=username_db,
+            description="Login negado: usuário desativado",
+            severity=AuditSeverity.WARNING,
+        )
+        # Aqui já sabemos que a senha está correta, então revelar que a
+        # conta está desativada não abre uma nova via de enumeração.
+        return False, None, "Usuário desativado. Contate um administrador."
+
     # Atualizar último login
     c.execute('UPDATE users SET last_login = ? WHERE id = ?', (datetime.now(), user_id))
-    
+
     # Criar token JWT
     payload = {
         'user_id': user_id,
-        'username': username,
+        'username': username_db,
         'role': role,
         'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
     }
-    
+
     token = jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
-    
+
     conn.commit()
     conn.close()
-    
+
+    record_login_success(username)
+    audit.log_action(
+        action=AuditAction.USER_ACTION,
+        user=username_db,
+        description="Login bem-sucedido",
+        severity=AuditSeverity.INFO,
+    )
+
     user_info = {
         'user_id': user_id,
-        'username': username,
+        'username': username_db,
         'email': email,
         'full_name': full_name,
         'role': role
     }
-    
+
     return True, user_info, token
 
 def verify_token(token: str) -> tuple[bool, Optional[dict]]:
@@ -167,25 +247,31 @@ def register_user(username: str, email: str, password: str, full_name: str) -> t
     if len(username) < 3:
         return False, "Username deve ter pelo menos 3 caracteres"
     
-    conn = sqlite3.connect('users.db')
+    conn = get_db_connection()
     c = conn.cursor()
-    
+
     # Verificar se username ou email já existem
     c.execute('SELECT id FROM users WHERE username = ? OR email = ?', (username, email))
     if c.fetchone():
         conn.close()
         return False, "Username ou email já cadastrados"
-    
+
     # Inserir novo usuário
-    password_hash = hash_password(password)
+    password_hash, password_salt = hash_password(password)
     try:
         c.execute('''
-            INSERT INTO users (username, email, password_hash, full_name, role)
-            VALUES (?, ?, ?, ?, 'user')
-        ''', (username, email, password_hash, full_name))
-        
+            INSERT INTO users (username, email, password_hash, password_salt, full_name, role)
+            VALUES (?, ?, ?, ?, ?, 'user')
+        ''', (username, email, password_hash, password_salt, full_name))
+
         conn.commit()
         conn.close()
+        get_audit_logger().log_action(
+            action=AuditAction.USER_ACTION,
+            user=username,
+            description="Novo usuário registrado",
+            severity=AuditSeverity.INFO,
+        )
         return True, "Usuário registrado com sucesso"
     except Exception as e:
         conn.close()
@@ -193,8 +279,19 @@ def register_user(username: str, email: str, password: str, full_name: str) -> t
 
 def logout_user():
     """Realiza logout do usuário"""
+    user = st.session_state.get('user')
+    if user:
+        get_audit_logger().log_action(
+            action=AuditAction.USER_ACTION,
+            user=user.get('username', 'desconhecido'),
+            description="Logout",
+            severity=AuditSeverity.INFO,
+        )
     st.session_state.pop('token', None)
     st.session_state.pop('user', None)
+    st.session_state.pop('user_id', None)
+    st.session_state.pop('user_role', None)
+    st.session_state.pop('username', None)
     st.rerun()
 
 # --- PÁGINA DE LOGIN ---
@@ -253,18 +350,35 @@ def show_login_page():
 
 # --- VERIFICAÇÃO DE AUTENTICAÇÃO ---
 def check_authentication():
-    """Verifica se usuário está autenticado"""
+    """Verifica se usuário está autenticado.
+
+    Além de validar o JWT, revalida o usuário no banco a cada checagem:
+    um token continua criptograficamente válido mesmo depois que a conta é
+    desativada ou tem a role alterada, então confiar só no payload permite
+    acesso obsoleto. Ver modules.auth_middleware.revalidate_user."""
     if 'token' not in st.session_state or 'user' not in st.session_state:
         return False
-    
+
     token = st.session_state.token
     is_valid, payload = verify_token(token)
-    
+
     if not is_valid:
         st.session_state.pop('token', None)
         st.session_state.pop('user', None)
         return False
-    
+
+    current = revalidate_user(payload['user_id'])
+    if current is None or not current['is_active']:
+        st.session_state.pop('token', None)
+        st.session_state.pop('user', None)
+        return False
+
+    # Sincroniza role/username com o estado atual do banco em vez de
+    # confiar apenas no que foi assinado no momento do login.
+    st.session_state.user['role'] = current['role']
+    st.session_state.user['username'] = current['username']
+    st.session_state.user['full_name'] = current['full_name']
+
     return True
 
 # --- LAYOUT PRINCIPAL APÓS LOGIN ---
@@ -397,10 +511,8 @@ def show_user_management_section():
         st.session_state.show_user_management = False
         st.rerun()
     
-    import sqlite3
-    from modules.auth_middleware import hash_password
-    
-    conn = sqlite3.connect('users.db')
+    admin_username = st.session_state.user['username']
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Listar usuários
@@ -432,23 +544,51 @@ def show_user_management_section():
                         new_role = "admin" if role == "user" else "user"
                         c.execute('UPDATE users SET role = ? WHERE id = ?', (new_role, id))
                         conn.commit()
+                        get_audit_logger().log_action(
+                            action=AuditAction.CONFIG_CHANGE,
+                            user=admin_username,
+                            description=f"Role de '{username}' alterada",
+                            details={'target_user': username, 'old_role': role, 'new_role': new_role},
+                            severity=AuditSeverity.WARNING,
+                        )
                         st.rerun()
                 with col_act2:
                     if is_active:
                         if st.button("🚫 Desativar", key=f"deactivate_{id}"):
                             c.execute('UPDATE users SET is_active = 0 WHERE id = ?', (id,))
                             conn.commit()
+                            get_audit_logger().log_action(
+                                action=AuditAction.CONFIG_CHANGE,
+                                user=admin_username,
+                                description=f"Usuário '{username}' desativado",
+                                details={'target_user': username},
+                                severity=AuditSeverity.WARNING,
+                            )
                             st.rerun()
                     else:
                         if st.button("✅ Ativar", key=f"activate_{id}"):
                             c.execute('UPDATE users SET is_active = 1 WHERE id = ?', (id,))
                             conn.commit()
+                            get_audit_logger().log_action(
+                                action=AuditAction.CONFIG_CHANGE,
+                                user=admin_username,
+                                description=f"Usuário '{username}' ativado",
+                                details={'target_user': username},
+                                severity=AuditSeverity.WARNING,
+                            )
                             st.rerun()
                 with col_act3:
                     if id != 1 and id != st.session_state.user['user_id']:  # Não permitir excluir admin principal ou a si mesmo
                         if st.button("🗑️ Excluir", key=f"delete_{id}"):
                             c.execute('DELETE FROM users WHERE id = ?', (id,))
                             conn.commit()
+                            get_audit_logger().log_action(
+                                action=AuditAction.CONFIG_CHANGE,
+                                user=admin_username,
+                                description=f"Usuário '{username}' excluído",
+                                details={'target_user': username},
+                                severity=AuditSeverity.CRITICAL,
+                            )
                             st.rerun()
                     else:
                         st.write("🔒 Protegido")
@@ -469,12 +609,19 @@ def show_user_management_section():
         if st.form_submit_button("Adicionar Usuário"):
             if all([new_username, new_email, new_full_name, new_password]):
                 try:
-                    password_hash = hash_password(new_password)
+                    password_hash, password_salt = hash_password(new_password)
                     c.execute('''
-                        INSERT INTO users (username, email, password_hash, full_name, role)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (new_username, new_email, password_hash, new_full_name, new_role))
+                        INSERT INTO users (username, email, password_hash, password_salt, full_name, role)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (new_username, new_email, password_hash, password_salt, new_full_name, new_role))
                     conn.commit()
+                    get_audit_logger().log_action(
+                        action=AuditAction.CONFIG_CHANGE,
+                        user=admin_username,
+                        description=f"Usuário '{new_username}' criado pelo administrador",
+                        details={'target_user': new_username, 'role': new_role},
+                        severity=AuditSeverity.WARNING,
+                    )
                     st.success(f"Usuário {new_username} adicionado com sucesso!")
                     st.rerun()
                 except sqlite3.IntegrityError:

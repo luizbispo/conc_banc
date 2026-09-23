@@ -11,6 +11,32 @@ import modules.data_processor as processor
 import tempfile
 import os
 from modules.performance_optimizer import chunker, cache_manager
+from modules.auth_middleware import enforce_auth, get_current_user
+from modules.audit_logger import get_audit_logger
+
+# Esta página processa uploads de arquivos (a principal superfície de dado
+# externo não confiável do sistema) e, diferente das demais páginas
+# (análise, relatório), NÃO tinha NENHUM guard de autenticação — era
+# acessível diretamente por URL sem login. enforce_auth() bloqueia a
+# execução do restante do script (st.stop()) se não houver sessão válida.
+enforce_auth()
+
+audit = get_audit_logger()
+_usuario_logado = get_current_user()
+usuario_atual = _usuario_logado['username'] if _usuario_logado else 'desconhecido'
+
+# Limite de tamanho de arquivo: antes não havia nenhum limite explícito de
+# bytes no caminho de importação, apesar de ser dado externo não confiável.
+MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+def validar_tamanho_arquivo(arquivo):
+    """Retorna (valido, motivo). motivo é None quando válido."""
+    tamanho = getattr(arquivo, 'size', None)
+    if tamanho is not None and tamanho > MAX_FILE_SIZE_BYTES:
+        limite_mb = MAX_FILE_SIZE_BYTES / (1024 * 1024)
+        tamanho_mb = tamanho / (1024 * 1024)
+        return False, f"Arquivo '{arquivo.name}' excede o limite de {limite_mb:.0f}MB ({tamanho_mb:.1f}MB)."
+    return True, None
 
 # --- Menu Customizado ---
 with st.sidebar:
@@ -791,9 +817,20 @@ def processar_pdf(arquivo):
 # FUNÇÃO PROCESSAR ARQUIVO ATUALIZADA
 def processar_arquivo(arquivo, tipo_arquivo):
     """Processa arquivo baseado no tipo"""
+    tamanho_arquivo = getattr(arquivo, 'size', 0) or 0
+
+    valido, motivo = validar_tamanho_arquivo(arquivo)
+    if not valido:
+        st.error(f"❌ {motivo}")
+        audit.log_file_upload(
+            file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
+            user=usuario_atual, success=False, error_message=motivo,
+        )
+        return None
+
     try:
         df = None
-        
+
         if tipo_arquivo == 'ofx':
             df = processar_ofx(arquivo)
         elif tipo_arquivo == 'cnab':
@@ -825,10 +862,25 @@ def processar_arquivo(arquivo, tipo_arquivo):
                 df['origem_arquivo'] = arquivo.name
                 df['tipo_arquivo'] = tipo  # B ou C
         
+        if df is not None and not df.empty:
+            audit.log_file_upload(
+                file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
+                user=usuario_atual, success=True,
+            )
+        else:
+            audit.log_file_upload(
+                file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
+                user=usuario_atual, success=False, error_message="Nenhum dado extraído do arquivo",
+            )
+
         return df
-        
+
     except Exception as e:
         st.error(f"Erro ao processar {tipo_arquivo.upper()}: {e}")
+        audit.log_file_upload(
+            file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
+            user=usuario_atual, success=False, error_message=str(e),
+        )
         return None
 
 # INTERFACE PRINCIPAL - SISTEMA DE UPLOAD
@@ -1195,32 +1247,80 @@ if st.session_state.extrato_df is not None and st.session_state.contabil_df is n
                 st.session_state.contabil_df, "Lançamentos Contábeis"
             )
             
-            def process_chunk(chunk):
-                return processor.processar_extrato(
-                    chunk, 
-                    col_data_extrato, 
-                    col_valor_extrato, 
-                    col_descricao_extrato
-             )
+            def processar_extrato_em_chunks(df):
+                """Processa em chunks preservando o relatório honesto de
+                rejeições (processor.processar_extrato agora retorna
+                (df, relatorio) em vez de só df; DataChunker.process_in_chunks
+                é genérico e faria pd.concat() sobre tuplas, o que quebraria,
+                então a soma dos relatórios por chunk é feita aqui)."""
+                chunk_size = chunker.config.CHUNK_SIZE
+                if len(df) <= chunk_size:
+                    return processor.processar_extrato(
+                        df, col_data_extrato, col_valor_extrato, col_descricao_extrato
+                    )
+
+                dfs, relatorios = [], []
+                for i in range(0, len(df), chunk_size):
+                    chunk_df, chunk_relatorio = processor.processar_extrato(
+                        df.iloc[i:i + chunk_size].copy(),
+                        col_data_extrato, col_valor_extrato, col_descricao_extrato
+                    )
+                    dfs.append(chunk_df)
+                    relatorios.append(chunk_relatorio)
+
+                relatorio_combinado = {
+                    'dataset': 'extrato bancário',
+                    'total_recebido': sum(r['total_recebido'] for r in relatorios),
+                    'total_aceito': sum(r['total_aceito'] for r in relatorios),
+                    'rejeitado_data_invalida': sum(r['rejeitado_data_invalida'] for r in relatorios),
+                    'rejeitado_valor_invalido': sum(r['rejeitado_valor_invalido'] for r in relatorios),
+                    'total_rejeitado': sum(r['total_rejeitado'] for r in relatorios),
+                }
+                return pd.concat(dfs, ignore_index=True), relatorio_combinado
 
             # Processar extrato
-            extrato_processado = chunker.process_in_chunks(st.session_state.extrato_df, process_chunk)
-            
+            extrato_processado, relatorio_extrato = processar_extrato_em_chunks(st.session_state.extrato_df)
+
             # Processar lançamentos contábeis
-            contabil_processado = processor.processar_contabil(
+            contabil_processado, relatorio_contabil = processor.processar_contabil(
                 st.session_state.contabil_df,
                 col_data_contabil,
                 col_valor_contabil,
                 col_descricao_contabil
             )
-            
+
             # Salvar no session state
             st.session_state.extrato_df = extrato_processado
             st.session_state.contabil_df = contabil_processado
             st.session_state.dados_carregados = True
-            
+
             st.success("✅ Dados processados automaticamente com sucesso!")
-            
+
+            # Relatório honesto de linhas rejeitadas — antes, linhas com
+            # data/valor inválidos eram simplesmente descartadas sem
+            # nenhum aviso visível.
+            for relatorio in (relatorio_extrato, relatorio_contabil):
+                if relatorio['total_rejeitado'] > 0:
+                    st.warning(
+                        f"⚠️ {relatorio['dataset'].capitalize()}: "
+                        f"{relatorio['total_rejeitado']} de {relatorio['total_recebido']} linha(s) "
+                        f"rejeitada(s) e não incluída(s) na conciliação "
+                        f"({relatorio['rejeitado_data_invalida']} com data inválida, "
+                        f"{relatorio['rejeitado_valor_invalido']} com valor inválido)."
+                    )
+                audit.log_data_processing(
+                    process_type=relatorio['dataset'],
+                    input_records=relatorio['total_recebido'],
+                    output_records=relatorio['total_aceito'],
+                    processing_time=0.0,
+                    user=usuario_atual,
+                    errors=(
+                        [f"{relatorio['rejeitado_data_invalida']} linha(s) com data inválida"] if relatorio['rejeitado_data_invalida'] else []
+                    ) + (
+                        [f"{relatorio['rejeitado_valor_invalido']} linha(s) com valor inválido"] if relatorio['rejeitado_valor_invalido'] else []
+                    ),
+                )
+
             # Visualização completa dos dados
             st.subheader("📈 Visualização Completa dos Dados")
             
@@ -1351,23 +1451,30 @@ with st.expander("🔧 Modo Desenvolvedor (Configuração Avançada)", expanded=
         if st.button("🔄 Reprocessar com Configuração Manual", type="secondary"):
             with st.spinner("Reprocessando dados com configuração manual..."):
                 try:
-                    extrato_reprocessado = processor.processar_extrato(
+                    extrato_reprocessado, relatorio_extrato_dev = processor.processar_extrato(
                         st.session_state.extrato_df,
                         col_data_extrato_dev,
                         col_valor_extrato_dev,
                         col_descricao_extrato_dev
                     )
-                    
-                    contabil_reprocessado = processor.processar_contabil(
+
+                    contabil_reprocessado, relatorio_contabil_dev = processor.processar_contabil(
                         st.session_state.contabil_df,
                         col_data_contabil_dev,
                         col_valor_contabil_dev,
                         col_descricao_contabil_dev
                     )
-                    
+
                     st.session_state.extrato_df = extrato_reprocessado
                     st.session_state.contabil_df = contabil_reprocessado
-                    
+
+                    for relatorio in (relatorio_extrato_dev, relatorio_contabil_dev):
+                        if relatorio['total_rejeitado'] > 0:
+                            st.warning(
+                                f"⚠️ {relatorio['dataset'].capitalize()}: "
+                                f"{relatorio['total_rejeitado']} de {relatorio['total_recebido']} linha(s) rejeitada(s)."
+                            )
+
                     st.success("✅ Dados reprocessados com configuração manual!")
                     st.rerun()
                     

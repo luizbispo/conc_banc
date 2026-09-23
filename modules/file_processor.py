@@ -80,8 +80,13 @@ class FileProcessor:
             
         except Exception as e:
             logger.error(f"Erro ao processar extrato: {str(e)}")
-            # Fallback para dados mock em caso de erro
-            return self._criar_dados_extrato_mock()
+            # Antes: em qualquer erro (arquivo corrompido, colunas erradas,
+            # encoding inválido etc.) este método retornava dados FICTÍCIOS
+            # como se fossem o extrato real, sem qualquer sinal visível de
+            # falha — quem chamasse isso poderia rodar uma "conciliação"
+            # inteira sobre dados que nunca vieram do arquivo enviado. Uma
+            # falha de parsing agora sempre propaga como erro explícito.
+            raise RuntimeError(f"Falha ao processar extrato '{arquivo_path}': {e}") from e
     
     def processar_contabeis(self, arquivo_path: str, mapeamento_colunas: Dict = None) -> pd.DataFrame:
         """Processa arquivo de lançamentos contábeis com mapeamento flexível"""
@@ -108,7 +113,9 @@ class FileProcessor:
             
         except Exception as e:
             logger.error(f"Erro ao processar contábeis: {str(e)}")
-            return self._criar_dados_contabil_mock()
+            # Mesmo raciocínio de processar_extrato: nunca mascarar um erro
+            # de parsing com dados inventados.
+            raise RuntimeError(f"Falha ao processar lançamentos contábeis '{arquivo_path}': {e}") from e
     
     def _mapeamento_automatico_extrato(self, df: pd.DataFrame, colunas_originais: List[str]) -> pd.DataFrame:
         """Mapeamento automático de colunas para extrato bancário"""
@@ -217,99 +224,6 @@ class FileProcessor:
             df['descricao'] = df['descricao'].astype(str).str.strip()
         
         return df
-
-    def _criar_dados_extrato_mock(self) -> pd.DataFrame:
-        """Cria dados mock de extrato bancário para fallback"""
-        logger.info("Usando dados mock de extrato")
-        
-        dados = [
-            {
-                'id': 1,
-                'data': pd.Timestamp('2024-01-01'),
-                'valor': -150.00,
-                'descricao': 'SUPERMERCADO ABC',
-                'categoria': 'Alimentação'
-            },
-            {
-                'id': 2,
-                'data': pd.Timestamp('2024-01-02'),
-                'valor': -80.50,
-                'descricao': 'RESTAURANTE XPTO',
-                'categoria': 'Alimentação'
-            },
-            {
-                'id': 3,
-                'data': pd.Timestamp('2024-01-03'),
-                'valor': 5000.00,
-                'descricao': 'PIX RECEBIDO - CLIENTE A',
-                'categoria': 'Receitas'
-            },
-            {
-                'id': 4,
-                'data': pd.Timestamp('2024-01-04'),
-                'valor': -120.00,
-                'descricao': 'POSTO SHELL - COMBUSTIVEL',
-                'categoria': 'Transporte'
-            },
-            {
-                'id': 5,
-                'data': pd.Timestamp('2024-01-05'),
-                'valor': -250.00,
-                'descricao': 'PAGAMENTO BOLETO FORNECEDOR',
-                'categoria': 'Compras'
-            }
-        ]
-        
-        return pd.DataFrame(dados)
-
-    def _criar_dados_contabil_mock(self) -> pd.DataFrame:
-        """Cria dados mock de lançamentos contábeis para fallback"""
-        logger.info("Usando dados mock contábeis")
-        
-        dados = [
-            {
-                'id': 1,
-                'data': pd.Timestamp('2024-01-01'),
-                'valor': 150.00,
-                'descricao': 'COMPRA SUPERMERCADO ABC',
-                'cliente_fornecedor': 'SUPERMERCADO ABC',
-                'categoria': 'Alimentação'
-            },
-            {
-                'id': 2,
-                'data': pd.Timestamp('2024-01-02'),
-                'valor': 80.50,
-                'descricao': 'REFEICAO RESTAURANTE XPTO',
-                'cliente_fornecedor': 'RESTAURANTE XPTO',
-                'categoria': 'Alimentação'
-            },
-            {
-                'id': 3,
-                'data': pd.Timestamp('2024-01-03'),
-                'valor': 5000.00,
-                'descricao': 'RECEBIMENTO PIX CLIENTE A',
-                'cliente_fornecedor': 'CLIENTE A',
-                'categoria': 'Receitas'
-            },
-            {
-                'id': 4,
-                'data': pd.Timestamp('2024-01-04'),
-                'valor': 120.00,
-                'descricao': 'ABASTECIMENTO VEICULAR SHELL',
-                'cliente_fornecedor': 'POSTO SHELL',
-                'categoria': 'Transporte'
-            },
-            {
-                'id': 5,
-                'data': pd.Timestamp('2024-01-05'),
-                'valor': 250.00,
-                'descricao': 'PAGAMENTO BOLETO FORNECEDOR B',
-                'cliente_fornecedor': 'FORNECEDOR B',
-                'categoria': 'Compras'
-            }
-        ]
-        
-        return pd.DataFrame(dados)
 
 # Funções de interface para o Streamlit
 def processar_extrato(arquivo_path: str, mapeamento_colunas: Dict = None) -> pd.DataFrame:
