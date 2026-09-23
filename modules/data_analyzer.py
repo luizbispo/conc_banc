@@ -19,6 +19,15 @@ except ImportError:
         return {'matches': [], 'matches_semanticos': 0, 'matches_temporais': 0, 
                 'matches_agrupados': 0, 'matches_entidades': 0}
 
+# Tolerância padrão de valor para o matching heurístico, como percentual
+# do valor de cada transação bancária (não mais derivada da média do
+# lote — ver histórico de correção em pages/analise_dados.py). Documentado
+# aqui como a fonte única de verdade do padrão; o valor pode ser
+# sobreposto por chamador (ex.: o slider "Tolerância de Valor (%)" da
+# página de análise).
+TOLERANCIA_VALOR_PERCENTUAL_PADRAO = 2.0
+
+
 class DataAnalyzer:
     def __init__(self):
         self.matches_identificados = []
@@ -78,31 +87,38 @@ class DataAnalyzer:
     
     def matching_heuristico(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
                           nao_matchados_extrato: pd.DataFrame, nao_matchados_contabil: pd.DataFrame,
-                          tolerancia_dias: int = 2, tolerancia_valor: float = 0.02,
+                          tolerancia_dias: int = 2,
+                          tolerancia_valor_percentual: float = TOLERANCIA_VALOR_PERCENTUAL_PADRAO,
                           similaridade_minima: int = 80) -> Dict:
-        """Camada 2: Matching heurístico com tolerâncias"""
+        """Camada 2: Matching heurístico com tolerâncias.
+
+        tolerancia_valor_percentual é um percentual (não mais um valor
+        absoluto em R$ derivado da média do lote): cada par é comparado
+        contra sua PRÓPRIA tolerância (percentual × valor da transação
+        bancária), então o resultado não muda dependendo de quais outras
+        transações estão no mesmo lote."""
         matches = []
         extrato_match_ids = set()
         contabil_match_ids = set()
-        
+
         # 1. Matching 1:1 com tolerâncias
         matches_1_1 = self._match_heuristico_1_1(
             nao_matchados_extrato, nao_matchados_contabil,
-            tolerancia_dias, tolerancia_valor, similaridade_minima
+            tolerancia_dias, tolerancia_valor_percentual, similaridade_minima
         )
         matches.extend(matches_1_1)
-        
+
         # 2. Matching 1:N (parcelamentos)
         matches_1_n = self._match_1_n(
             nao_matchados_extrato, nao_matchados_contabil,
-            tolerancia_dias, tolerancia_valor
+            tolerancia_dias, tolerancia_valor_percentual
         )
         matches.extend(matches_1_n)
-        
+
         # 3. Matching N:1 (consolidações)
         matches_n_1 = self._match_n_1(
             nao_matchados_extrato, nao_matchados_contabil,
-            tolerancia_dias, tolerancia_valor
+            tolerancia_dias, tolerancia_valor_percentual
         )
         matches.extend(matches_n_1)
         
@@ -343,19 +359,26 @@ class DataAnalyzer:
         return matches
 
     def _match_heuristico_1_1(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
-                            tolerancia_dias: int, tolerancia_valor: float, similaridade_minima: int) -> List[Dict]:
-        """Matching heurístico 1:1"""
+                            tolerancia_dias: int, tolerancia_valor_percentual: float, similaridade_minima: int) -> List[Dict]:
+        """Matching heurístico 1:1.
+
+        A tolerância de valor é aplicada por par: percentual × valor da
+        transação bancária daquele par específico, não um R$ fixo
+        calculado sobre a média de todo o lote (instável — o mesmo par
+        podia ser aceito ou rejeitado dependendo de quais outras
+        transações estavam no lote)."""
         matches = []
         extrato_match_ids = set()
         contabil_match_ids = set()
-        
+
         for _, extrato_row in extrato_df.iterrows():
             if extrato_row['id'] in extrato_match_ids: continue
             valor_extrato_abs = abs(extrato_row['valor'])
-            
+            tolerancia_valor_absoluta = valor_extrato_abs * (tolerancia_valor_percentual / 100)
+
             contabil_candidatos = contabil_df[
                 (~contabil_df['id'].isin(contabil_match_ids)) &
-                (abs(abs(contabil_df['valor']) - valor_extrato_abs) <= tolerancia_valor)
+                (abs(abs(contabil_df['valor']) - valor_extrato_abs) <= tolerancia_valor_absoluta)
             ]
             
             for _, contabil_row in contabil_candidatos.iterrows():
@@ -386,12 +409,12 @@ class DataAnalyzer:
         return matches
     
     def _match_1_n(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
-                  tolerancia_dias: int, tolerancia_valor: float) -> List[Dict]:
+                  tolerancia_dias: int, tolerancia_valor_percentual: float) -> List[Dict]:
         """Matching 1:N (parcelamentos)"""
         return []  # Implementação simplificada
-    
+
     def _match_n_1(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
-                  tolerancia_dias: int, tolerancia_valor: float) -> List[Dict]:
+                  tolerancia_dias: int, tolerancia_valor_percentual: float) -> List[Dict]:
         """Matching N:1 (consolidações)"""
         return []  # Implementação simplificada
     
@@ -432,9 +455,9 @@ def matching_exato(extrato_df: pd.DataFrame, contabil_df: pd.DataFrame) -> Dict:
 
 def matching_heuristico(extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
                        nao_matchados_extrato: pd.DataFrame, nao_matchados_contabil: pd.DataFrame,
-                       tolerancia_dias: int, tolerancia_valor: float, similaridade_minima: int) -> Dict:
-    return DataAnalyzer().matching_heuristico(extrato_df, contabil_df, nao_matchados_extrato, 
-                                      nao_matchados_contabil, tolerancia_dias, tolerancia_valor, similaridade_minima)
+                       tolerancia_dias: int, tolerancia_valor_percentual: float, similaridade_minima: int) -> Dict:
+    return DataAnalyzer().matching_heuristico(extrato_df, contabil_df, nao_matchados_extrato,
+                                      nao_matchados_contabil, tolerancia_dias, tolerancia_valor_percentual, similaridade_minima)
 
 def matching_ia(extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
                nao_matchados_extrato: pd.DataFrame, nao_matchados_contabil: pd.DataFrame) -> Dict:
