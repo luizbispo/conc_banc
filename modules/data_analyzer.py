@@ -370,14 +370,14 @@ class DataAnalyzer:
                 if similaridade >= similaridade_minima:
                     diff_valor = abs(abs(contabil_row['valor']) - valor_extrato_abs)
                     confianca = self._calcular_confianca_heuristica(data_diff, diff_valor, similaridade)
-                    
+
                     matches.append({
                         'tipo_match': '1:1', 'camada': 'heuristica',
                         'ids_extrato': [extrato_row['id']],
                         'ids_contabil': [contabil_row['id']],
                         'valor_total': valor_extrato_abs,
                         'confianca': confianca,
-                        'explicacao': f"Match por similaridade: {similaridade}%",
+                        'explicacao': self._justificar_match_heuristico(similaridade, diff_valor, data_diff),
                         'chave_match': f"HEUR_{extrato_row['id']}_{contabil_row['id']}"
                     })
                     extrato_match_ids.add(extrato_row['id'])
@@ -400,6 +400,24 @@ class DataAnalyzer:
         if not texto1 or not texto2: return 0.0
         return SequenceMatcher(None, texto1.lower(), texto2.lower()).ratio() * 100
     
+    def _justificar_match_heuristico(self, similaridade: float, diff_valor: float, diff_dias: int) -> str:
+        """Monta a justificativa textual de um match heurístico.
+
+        Antes a justificativa dizia só "Match por similaridade: X%", sem
+        indicar QUANTO o valor e a data divergem entre os dois lados —
+        obrigando o contador a comparar as linhas manualmente para
+        auditar a decisão. Agora cita explicitamente as três dimensões
+        usadas no cálculo de confiança (texto, valor e data), no formato
+        "Match por similaridade: 90%; valor difere R$ 3,00; data difere 0
+        dias"."""
+        valor_str = f"{diff_valor:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
+        dia_plural = "dia" if diff_dias == 1 else "dias"
+        return (
+            f"Match por similaridade: {similaridade:.0f}%; "
+            f"valor difere R$ {valor_str}; "
+            f"data difere {diff_dias} {dia_plural}"
+        )
+
     def _calcular_confianca_heuristica(self, diff_dias: int, diff_valor: float, similaridade: float) -> float:
         """Calcula confiança do match heurístico"""
         confianca = 100
