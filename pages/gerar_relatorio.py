@@ -12,59 +12,39 @@ from difflib import SequenceMatcher
 from modules.auth_middleware import require_auth
 
 
-def parse_valor_moeda(valor_str) -> float:
-    """Converte uma string de valor monetário (prefixo 'R$' opcional, sinal
-    negativo opcional) para float, aceitando tanto a convenção BRL (milhar
-    '.', decimal ',') quanto a convenção usada pelo próprio f"{valor:,.2f}"
-    do Python (milhar ',', decimal '.').
+# parse_valor_moeda mudou de casa para modules/report_generator.py (é
+# reutilizada lá para somar as colunas 'Valor' das tabelas de divergência
+# ao gerar o PDF); reexportada aqui para não quebrar o import existente
+# (inclusive em tests/test_parse_valor_moeda.py).
+from modules.report_generator import parse_valor_moeda
 
-    Bug corrigido (E2E real, ver issue): o código anterior assumia sempre
-    convenção BRL (`.replace('.', '').replace(',', '.')`), mas as tabelas de
-    divergência desta página são montadas com `f"R$ {valor:,.2f}"`
-    (`_criar_tabela_transacoes_sem_correspondencia` /
-    `_criar_tabela_lancamentos_sem_correspondencia`), que produz milhar ','
-    e decimal '.' — ex.: "R$ 1,300.00". O parser antigo removia o ÚNICO
-    ponto (tratando-o como milhar) e não encontrava vírgula, resultando em
-    "1300" → 1300 interpretado como "13,00" após a lógica ficar invertida
-    (na prática: "R$ 1,300.00" virava 1.3), inflando o "Total em
-    divergência" somado a partir dessas strings.
 
-    Estratégia: o ÚLTIMO separador (',' ou '.') que aparece na string é
-    tratado como decimal; qualquer separador do outro tipo é tratado como
-    milhar e removido. Isso decide corretamente entre as duas convenções
-    sem precisar adivinhar qual foi usada para gerar a string, e funciona
-    tanto para "R$ 60,50"/"R$ 1.300,00" (BRL) quanto para "R$ 60.50"/
-    "R$ 1,300.00" (a convenção real usada por este arquivo).
+def calcular_periodo_real(extrato_df: pd.DataFrame, contabil_df: pd.DataFrame) -> str:
+    """Calcula o período real coberto pelos dados analisados (menor e maior
+    data entre extrato e contábil), formatado como 'dd/mm/aaaa a
+    dd/mm/aaaa'.
+
+    Bug corrigido (E2E real, ver issue): o campo "Período" do relatório
+    usava `datetime.now().strftime('%B/%Y')` como valor padrão — ou seja,
+    o mês em que o PDF foi GERADO (ex.: "September/2026"), não o
+    intervalo real das transações analisadas. Se nenhuma data válida for
+    encontrada nos dados, cai de volta no mês de geração (não há outro
+    valor sensato a mostrar).
     """
-    if valor_str is None:
-        raise ValueError("valor monetário vazio")
+    datas = []
+    for df in (extrato_df, contabil_df):
+        if df is not None and 'data' in df.columns and len(df) > 0:
+            serie = pd.to_datetime(df['data'], errors='coerce').dropna()
+            if not serie.empty:
+                datas.append(serie.min())
+                datas.append(serie.max())
 
-    s = str(valor_str).strip().replace('R$', '').strip()
+    if not datas:
+        return datetime.now().strftime('%B/%Y')
 
-    negativo = False
-    if s.startswith('-'):
-        negativo = True
-        s = s[1:].strip()
-    elif s.startswith('(') and s.endswith(')'):
-        negativo = True
-        s = s[1:-1].strip()
-
-    if not s:
-        raise ValueError(f"valor monetário vazio: {valor_str!r}")
-
-    ultima_virgula = s.rfind(',')
-    ultimo_ponto = s.rfind('.')
-
-    if ultima_virgula > ultimo_ponto:
-        # vírgula é o separador decimal (convenção BRL); ponto(s) = milhar
-        numero = s.replace('.', '').replace(',', '.')
-    else:
-        # ponto é o separador decimal (ou não há separador nenhum);
-        # vírgula(s), se houver, são milhar
-        numero = s.replace(',', '')
-
-    valor = float(numero)
-    return -valor if negativo else valor
+    data_inicio = min(datas)
+    data_fim = max(datas)
+    return f"{data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}"
 
 
 @require_auth
@@ -277,8 +257,8 @@ def main():
 
     empresa_nome = st.sidebar.text_input("Nome da Empresa", "")
     contador_nome = st.sidebar.text_input("Nome do Contador", "")
-    periodo_relatorio = st.sidebar.text_input("Período da Análise", 
-                                            f"{datetime.now().strftime('%B/%Y')}")
+    periodo_relatorio = st.sidebar.text_input("Período da Análise",
+                                            calcular_periodo_real(extrato_filtrado, contabil_filtrado))
 
     # Opções de conteúdo
     st.sidebar.header("📋 Conteúdo do Relatório")
