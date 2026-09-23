@@ -12,6 +12,61 @@ from difflib import SequenceMatcher
 from modules.auth_middleware import require_auth
 
 
+def parse_valor_moeda(valor_str) -> float:
+    """Converte uma string de valor monetário (prefixo 'R$' opcional, sinal
+    negativo opcional) para float, aceitando tanto a convenção BRL (milhar
+    '.', decimal ',') quanto a convenção usada pelo próprio f"{valor:,.2f}"
+    do Python (milhar ',', decimal '.').
+
+    Bug corrigido (E2E real, ver issue): o código anterior assumia sempre
+    convenção BRL (`.replace('.', '').replace(',', '.')`), mas as tabelas de
+    divergência desta página são montadas com `f"R$ {valor:,.2f}"`
+    (`_criar_tabela_transacoes_sem_correspondencia` /
+    `_criar_tabela_lancamentos_sem_correspondencia`), que produz milhar ','
+    e decimal '.' — ex.: "R$ 1,300.00". O parser antigo removia o ÚNICO
+    ponto (tratando-o como milhar) e não encontrava vírgula, resultando em
+    "1300" → 1300 interpretado como "13,00" após a lógica ficar invertida
+    (na prática: "R$ 1,300.00" virava 1.3), inflando o "Total em
+    divergência" somado a partir dessas strings.
+
+    Estratégia: o ÚLTIMO separador (',' ou '.') que aparece na string é
+    tratado como decimal; qualquer separador do outro tipo é tratado como
+    milhar e removido. Isso decide corretamente entre as duas convenções
+    sem precisar adivinhar qual foi usada para gerar a string, e funciona
+    tanto para "R$ 60,50"/"R$ 1.300,00" (BRL) quanto para "R$ 60.50"/
+    "R$ 1,300.00" (a convenção real usada por este arquivo).
+    """
+    if valor_str is None:
+        raise ValueError("valor monetário vazio")
+
+    s = str(valor_str).strip().replace('R$', '').strip()
+
+    negativo = False
+    if s.startswith('-'):
+        negativo = True
+        s = s[1:].strip()
+    elif s.startswith('(') and s.endswith(')'):
+        negativo = True
+        s = s[1:-1].strip()
+
+    if not s:
+        raise ValueError(f"valor monetário vazio: {valor_str!r}")
+
+    ultima_virgula = s.rfind(',')
+    ultimo_ponto = s.rfind('.')
+
+    if ultima_virgula > ultimo_ponto:
+        # vírgula é o separador decimal (convenção BRL); ponto(s) = milhar
+        numero = s.replace('.', '').replace(',', '.')
+    else:
+        # ponto é o separador decimal (ou não há separador nenhum);
+        # vírgula(s), se houver, são milhar
+        numero = s.replace(',', '')
+
+    valor = float(numero)
+    return -valor if negativo else valor
+
+
 @require_auth
 def main():
     try:
@@ -367,7 +422,7 @@ def main():
                 total_valor = 0
                 for valor_str in tabelas_divergencias['transacoes_sem_correspondencia']['Valor']:
                     try:
-                        valor_clean = float(valor_str.replace('R$', '').replace('.', '').replace(',', '.').strip())
+                        valor_clean = parse_valor_moeda(valor_str)
                         total_valor += abs(valor_clean)
                     except:
                         continue
@@ -399,7 +454,7 @@ def main():
                 total_valor = 0
                 for valor_str in tabelas_divergencias['lancamentos_sem_correspondencia']['Valor']:
                     try:
-                        valor_clean = float(valor_str.replace('R$', '').replace('.', '').replace(',', '.').strip())
+                        valor_clean = parse_valor_moeda(valor_str)
                         total_valor += abs(valor_clean)
                     except:
                         continue

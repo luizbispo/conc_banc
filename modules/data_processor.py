@@ -284,71 +284,73 @@ def importar_de_pasta_cloud(folder_url, padrao_nome, mes_referencia, tipo_arquiv
         return None
 
 # Funções de processamento (mantidas)
-def processar_extrato(df, col_data, col_valor, col_descricao):
-    """Processa e padroniza DataFrame do extrato bancário"""
+def _processar_generico(df, col_data, col_valor, col_descricao, nome_dataset: str):
+    """Processa e padroniza um DataFrame (extrato ou contábil).
+
+    Retorna (df_processado, relatorio). Antes, linhas com data ou valor
+    inválidos eram descartadas silenciosamente via dropna(), sem que quem
+    chamasse a função tivesse qualquer contagem do que foi rejeitado — uma
+    conciliação podia "fechar" mostrando só uma fração dos lançamentos,
+    sem aviso. O relatório devolvido aqui permite ao chamador exibir/auditar
+    quantas linhas foram recebidas, aceitas e rejeitadas, e por quê.
+    """
     df_processed = df.copy()
-    
+    total_recebido = len(df_processed)
+
     # Renomear colunas para padrão interno
     df_processed = df_processed.rename(columns={
         col_data: 'data',
         col_valor: 'valor',
         col_descricao: 'descricao'
     })
-    
+
     # Garantir que temos as colunas mínimas
     required_cols = ['data', 'valor', 'descricao']
     for col in required_cols:
         if col not in df_processed.columns:
-            raise ValueError(f"Coluna '{col}' não encontrada no extrato")
-    
+            raise ValueError(f"Coluna '{col}' não encontrada em {nome_dataset}")
+
     # Processar data
     df_processed['data'] = pd.to_datetime(df_processed['data'], errors='coerce')
+    rejeitado_data = int(df_processed['data'].isna().sum())
     df_processed = df_processed.dropna(subset=['data'])
-    
+
     # Processar valor
     df_processed['valor'] = pd.to_numeric(df_processed['valor'], errors='coerce')
+    rejeitado_valor = int(df_processed['valor'].isna().sum())
     df_processed = df_processed.dropna(subset=['valor'])
-    
+
     # Adicionar ID único
     df_processed['id'] = range(1, len(df_processed) + 1)
-    
+
     # Ordenar por data
     df_processed = df_processed.sort_values('data').reset_index(drop=True)
-    
-    return df_processed[['id', 'data', 'valor', 'descricao'] + 
+
+    resultado = df_processed[['id', 'data', 'valor', 'descricao'] +
                        [col for col in df_processed.columns if col not in ['id', 'data', 'valor', 'descricao']]]
 
+    relatorio = {
+        'dataset': nome_dataset,
+        'total_recebido': total_recebido,
+        'total_aceito': len(resultado),
+        'rejeitado_data_invalida': rejeitado_data,
+        'rejeitado_valor_invalido': rejeitado_valor,
+        'total_rejeitado': rejeitado_data + rejeitado_valor,
+    }
+
+    return resultado, relatorio
+
+def processar_extrato(df, col_data, col_valor, col_descricao):
+    """Processa e padroniza DataFrame do extrato bancário.
+
+    Retorna (df_processado, relatorio_de_rejeicoes) — ver _processar_generico.
+    """
+    return _processar_generico(df, col_data, col_valor, col_descricao, 'extrato bancário')
+
 def processar_contabil(df, col_data, col_valor, col_descricao):
-    """Processa e padroniza DataFrame dos lançamentos contábeis"""
-    df_processed = df.copy()
-    
-    # Renomear colunas para padrão interno
-    df_processed = df_processed.rename(columns={
-        col_data: 'data',
-        col_valor: 'valor',
-        col_descricao: 'descricao'
-    })
-    
-    # Garantir que temos as colunas mínimas
-    required_cols = ['data', 'valor', 'descricao']
-    for col in required_cols:
-        if col not in df_processed.columns:
-            raise ValueError(f"Coluna '{col}' não encontrada nos lançamentos")
-    
-    # Processar data
-    df_processed['data'] = pd.to_datetime(df_processed['data'], errors='coerce')
-    df_processed = df_processed.dropna(subset=['data'])
-    
-    # Processar valor
-    df_processed['valor'] = pd.to_numeric(df_processed['valor'], errors='coerce')
-    df_processed = df_processed.dropna(subset=['valor'])
-    
-    # Adicionar ID único
-    df_processed['id'] = range(1, len(df_processed) + 1)
-    
-    # Ordenar por data
-    df_processed = df_processed.sort_values('data').reset_index(drop=True)
-    
-    return df_processed[['id', 'data', 'valor', 'descricao'] + 
-                       [col for col in df_processed.columns if col not in ['id', 'data', 'valor', 'descricao']]]
+    """Processa e padroniza DataFrame dos lançamentos contábeis.
+
+    Retorna (df_processado, relatorio_de_rejeicoes) — ver _processar_generico.
+    """
+    return _processar_generico(df, col_data, col_valor, col_descricao, 'lançamentos contábeis')
 
