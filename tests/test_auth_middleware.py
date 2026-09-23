@@ -3,11 +3,15 @@ Testes de regressão para modules/auth_middleware.py.
 
 Cobrem as correções implementadas na revisão real do repositório
 (issue XCRE-41): hashing de senha salgado, limitação de tentativas de
-login (rate limiting) e revalidação do usuário contra o banco (para não
-confiar apenas no payload do JWT quando a conta é desativada/rebaixada).
+login (rate limiting), revalidação do usuário contra o banco (para não
+confiar apenas no payload do JWT quando a conta é desativada/rebaixada) e
+a migração transparente de contas legadas (SHA-256 sem salt) para PBKDF2
+salgado, apontada na revisão de segurança do commit 1f4c03f como bloqueio
+funcional (bancos legados ficavam impossibilitados de logar).
 
 Usa dados 100% sintéticos gerados no próprio teste — nenhum dado real.
 """
+import hashlib
 import sqlite3
 
 import pytest
@@ -76,12 +80,102 @@ def test_hash_password_generates_unique_salt_per_call():
 
 
 def test_verify_password_without_salt_is_rejected():
-    # Simula uma conta sem coluna password_salt preenchida (legado):
-    # antes a verificação era SHA-256 sem salt; agora, sem salt, a conta
-    # é tratada como incompatível com o esquema atual em vez de aceitar
-    # silenciosamente um hash mais fraco.
+    # verify_password() "puro" (sem migração) continua rejeitando contas
+    # sem salt — o caminho de migração é uma função separada e explícita
+    # (verify_password_with_migration), nunca implícito aqui.
     assert am.verify_password("qualquer", "algumhash", None) is False
     assert am.verify_password("qualquer", "algumhash", "") is False
+
+
+# --- Migração de contas legadas (SHA-256 sem salt -> PBKDF2 salgado) ---
+# Regressão apontada na revisão de segurança do commit 1f4c03f: bancos
+# criados antes desta migração têm password_salt nulo e password_hash em
+# SHA-256 puro; sem tratamento explícito, verify_password() passou a
+# rejeitar essas contas incondicionalmente (bloqueio funcional real).
+
+def _legacy_sha256_hash(password: str) -> str:
+    """Reproduz o esquema de hash usado pelo código ANTES da migração
+    para PBKDF2 (SHA-256 puro, sem salt), para simular um users.db
+    legado nos testes."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def test_verify_legacy_sha256_accepts_correct_password():
+    legacy_hash = _legacy_sha256_hash("SenhaAntiga1")
+    assert am.verify_legacy_sha256("SenhaAntiga1", legacy_hash) is True
+
+
+def test_verify_legacy_sha256_rejects_wrong_password():
+    legacy_hash = _legacy_sha256_hash("SenhaAntiga1")
+    assert am.verify_legacy_sha256("SenhaErrada9", legacy_hash) is False
+
+
+def test_verify_legacy_sha256_rejects_empty_hash():
+    assert am.verify_legacy_sha256("qualquer", "") is False
+    assert am.verify_legacy_sha256("qualquer", None) is False
+
+
+def test_migration_path_accepts_legacy_account_and_flags_migration():
+    """Conta legada (sem salt): senha correta deve autenticar E sinalizar
+    que o chamador precisa regravar o hash."""
+    legacy_hash = _legacy_sha256_hash("SenhaAntiga1")
+
+    senha_valida, precisa_migrar = am.verify_password_with_migration(
+        "SenhaAntiga1", legacy_hash, salt=None
+    )
+
+    assert senha_valida is True
+    assert precisa_migrar is True
+
+
+def test_migration_path_rejects_wrong_password_without_flagging_migration():
+    legacy_hash = _legacy_sha256_hash("SenhaAntiga1")
+
+    senha_valida, precisa_migrar = am.verify_password_with_migration(
+        "SenhaErrada9", legacy_hash, salt=None
+    )
+
+    assert senha_valida is False
+    assert precisa_migrar is False
+
+
+def test_migration_path_does_not_flag_migration_for_already_migrated_account():
+    """Conta já no esquema atual (com salt): deve se comportar
+    exatamente como verify_password() e NUNCA sinalizar migração — a
+    migração só se aplica ao caminho legado sem salt."""
+    password_hash, salt = am.hash_password("SenhaNova1")
+
+    senha_valida, precisa_migrar = am.verify_password_with_migration(
+        "SenhaNova1", password_hash, salt
+    )
+
+    assert senha_valida is True
+    assert precisa_migrar is False
+
+
+def test_migration_path_new_scheme_rejects_wrong_password():
+    password_hash, salt = am.hash_password("SenhaNova1")
+
+    senha_valida, precisa_migrar = am.verify_password_with_migration(
+        "SenhaErrada9", password_hash, salt
+    )
+
+    assert senha_valida is False
+    assert precisa_migrar is False
+
+
+def test_migration_path_empty_salt_string_is_treated_as_legacy():
+    """password_salt pode vir como string vazia (não só NULL/None)
+    dependendo de como a linha foi inserida — o caminho de migração deve
+    tratar ambos os casos como 'sem salt'."""
+    legacy_hash = _legacy_sha256_hash("SenhaAntiga1")
+
+    senha_valida, precisa_migrar = am.verify_password_with_migration(
+        "SenhaAntiga1", legacy_hash, salt=""
+    )
+
+    assert senha_valida is True
+    assert precisa_migrar is True
 
 
 # --- Limitação de tentativas de login ---

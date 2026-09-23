@@ -11,6 +11,7 @@ from modules.auth_middleware import (
     JWT_ALGORITHM,
     hash_password,
     verify_password,
+    verify_password_with_migration,
     get_db_connection,
     init_security_tables,
     check_login_rate_limit,
@@ -120,6 +121,11 @@ def login_user(username: str, password: str) -> tuple[bool, Optional[dict], str]
       existe (compara contra um hash "dummy"), para reduzir (não eliminar)
       diferença de tempo de resposta como sinal de enumeração.
     - Hash de senha salgado (PBKDF2), não mais SHA-256 puro sem salt.
+    - Contas de bancos criados ANTES desta migração (password_salt nulo,
+      hash SHA-256 puro) continuam autenticando: verify_password_with_migration
+      aceita o hash legado na primeira tentativa e, se válido, regrava
+      password_hash/password_salt em PBKDF2 imediatamente, sem exigir
+      reset de senha nem expor ao usuário que houve migração.
     - Login bem-sucedido/malsucedido é registrado na trilha de auditoria.
     """
     audit = get_audit_logger()
@@ -164,7 +170,28 @@ def login_user(username: str, password: str) -> tuple[bool, Optional[dict], str]
 
     user_id, username_db, email, full_name, role, password_hash, password_salt, is_active = user
 
-    senha_valida = verify_password(password, password_hash, password_salt)
+    senha_valida, precisa_migrar = verify_password_with_migration(password, password_hash, password_salt)
+
+    if senha_valida and precisa_migrar:
+        # Conta legada autenticada com sucesso no hash SHA-256 sem salt:
+        # regrava imediatamente em PBKDF2 + salt, para que esta conta
+        # nunca mais dependa do esquema fraco. Isso é transparente para o
+        # usuário — nenhuma mensagem ou comportamento visível muda.
+        novo_hash, novo_salt = hash_password(password)
+        c.execute(
+            'UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?',
+            (novo_hash, novo_salt, user_id),
+        )
+        # Commit imediato: independe do que acontece adiante (ex.: conta
+        # desativada) — sem isso, um conn.close() sem commit em um branch
+        # de erro descartaria a migração silenciosamente.
+        conn.commit()
+        audit.log_action(
+            action=AuditAction.CONFIG_CHANGE,
+            user=username_db,
+            description="Senha migrada de SHA-256 legado para PBKDF2 salgado no login",
+            severity=AuditSeverity.INFO,
+        )
 
     if not senha_valida:
         conn.close()

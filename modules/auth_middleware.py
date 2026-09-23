@@ -68,11 +68,52 @@ def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
 
 def verify_password(password: str, password_hash: str, salt: Optional[str]) -> bool:
     """Verifica senha em tempo constante. Retorna False se não houver salt
-    (conta legada incompatível com o esquema atual)."""
+    (conta legada incompatível com o esquema atual — ver
+    verify_password_with_migration para o caminho de migração)."""
     if not salt or not password_hash:
         return False
     candidate, _ = hash_password(password, salt)
     return hmac.compare_digest(candidate, password_hash)
+
+def verify_legacy_sha256(password: str, password_hash: str) -> bool:
+    """Verifica a senha contra o esquema LEGADO (SHA-256 puro, sem salt),
+    usado por este projeto antes da migração para PBKDF2. Existe só para
+    permitir a migração transparente de contas antigas na primeira
+    autenticação — nunca deve ser usado como esquema de verificação
+    contínuo (SHA-256 puro é rápido demais e sem salt, vulnerável a
+    força bruta/rainbow table)."""
+    if not password_hash:
+        return False
+    legacy_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+    return hmac.compare_digest(legacy_hash, password_hash)
+
+def verify_password_with_migration(password: str, password_hash: str, salt: Optional[str]) -> tuple[bool, bool]:
+    """Verifica a senha aceitando tanto o esquema atual (PBKDF2 + salt)
+    quanto o esquema legado (SHA-256 sem salt), para que contas de bancos
+    criados antes desta migração continuem autenticando sem exigir reset
+    de senha.
+
+    Retorna (senha_valida, precisa_migrar):
+    - precisa_migrar é True quando a senha bateu no esquema LEGADO — o
+      chamador deve, na mesma requisição de login bem-sucedida, gerar um
+      novo hash_password(password) e regravar password_hash/password_salt
+      no banco, para que a conta nunca mais dependa de SHA-256 sem salt.
+    - Quando salt já existe (conta já no esquema atual), o caminho é
+      idêntico a verify_password() e precisa_migrar é sempre False.
+
+    Nota de canal lateral: o caminho legado é computacionalmente muito
+    mais barato que PBKDF2 (260k iterações). Para não introduzir uma
+    diferença de tempo observável que distinga "conta legada" de "conta
+    já migrada" a partir de fora, este caminho também executa (e
+    descarta) um hash_password() completo, equalizando o custo com o
+    caminho salgado.
+    """
+    if salt:
+        return verify_password(password, password_hash, salt), False
+
+    senha_valida = verify_legacy_sha256(password, password_hash)
+    hash_password(password)  # trabalho descartado, só para equalizar tempo
+    return senha_valida, senha_valida
 
 # --- LIMITAÇÃO DE TENTATIVAS DE LOGIN (RATE LIMITING) ---
 LOGIN_MAX_ATTEMPTS = 5
