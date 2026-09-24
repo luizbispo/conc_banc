@@ -509,7 +509,69 @@ def consolidar_resultados(resultados_exato: Dict, resultados_heurístico: Dict, 
         }
     }
 
-def get_detalhes_divergencias_tabela(excecoes: List[Dict], 
+def identificar_pares_provaveis_similaridade(
+    extrato_nao_match: pd.DataFrame,
+    contabil_nao_match: pd.DataFrame,
+    *,
+    diff_valor_percentual_maximo: float = 10.0,
+    diff_dias_maximo: int = 5,
+    similaridade_minima: float = 40.0,
+) -> List[Dict]:
+    """Fonte ÚNICA da regra "possíveis correspondências por similaridade"
+    entre itens ainda em aberto (issue XCRE-44, item A2): mesmos limiares
+    e fórmula de confiança que pages/analise_dados.py já usa e expõe na
+    UI/CSV (diferença de valor <=10%, diferença de data <=5 dias,
+    similaridade textual >=40%) — extraída para cá para que o relatório
+    Executivo REUTILIZE este cálculo em vez de recalcular de forma
+    divergente. Retorna valores BRUTOS (não formatados como string), um
+    dict por par candidato; não é pareamento exclusivo (um item pode
+    aparecer em mais de um par candidato)."""
+    pares = []
+    for _, linha_extrato in extrato_nao_match.iterrows():
+        valor_extrato = abs(linha_extrato["valor"])
+        data_extrato = linha_extrato.get("data")
+        for _, linha_contabil in contabil_nao_match.iterrows():
+            valor_contabil = abs(linha_contabil["valor"])
+            data_contabil = linha_contabil.get("data")
+
+            diff_valor_percent = (
+                abs(valor_extrato - valor_contabil) / valor_extrato * 100 if valor_extrato > 0 else 100
+            )
+            if hasattr(data_extrato, "strftime") and hasattr(data_contabil, "strftime"):
+                diff_dias = abs((data_extrato - data_contabil).days)
+            else:
+                diff_dias = 30
+
+            if diff_valor_percent > diff_valor_percentual_maximo or diff_dias > diff_dias_maximo:
+                continue
+
+            similaridade = SequenceMatcher(
+                None,
+                str(linha_extrato.get("descricao", "") or "").lower(),
+                str(linha_contabil.get("descricao", "") or "").lower(),
+            ).ratio() * 100
+            if similaridade < similaridade_minima:
+                continue
+
+            confianca = (100 - diff_valor_percent) * (100 - diff_dias * 2) * similaridade / 10000
+            pares.append({
+                "id_extrato": linha_extrato["id"],
+                "id_contabil": linha_contabil["id"],
+                "data_extrato": data_extrato,
+                "data_contabil": data_contabil,
+                "valor_extrato": float(linha_extrato["valor"]),
+                "valor_contabil": float(linha_contabil["valor"]),
+                "descricao_extrato": str(linha_extrato.get("descricao", "") or ""),
+                "descricao_contabil": str(linha_contabil.get("descricao", "") or ""),
+                "diferenca_valor": round(abs(valor_extrato - valor_contabil), 2),
+                "diferenca_dias": diff_dias,
+                "similaridade": round(similaridade, 1),
+                "confianca": round(max(0.0, min(100.0, confianca)), 1),
+            })
+    return pares
+
+
+def get_detalhes_divergencias_tabela(excecoes: List[Dict],
                                    extrato_df: pd.DataFrame, 
                                    contabil_df: pd.DataFrame) -> pd.DataFrame:
     """Retorna detalhes das divergências em formato tabular limpo"""

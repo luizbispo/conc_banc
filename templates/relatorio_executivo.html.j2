@@ -247,6 +247,32 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
     </div>
   </div>
   <div class="keep">
+    <h3>Pares prováveis apontados pelo sistema <span class="muted" style="font-weight:400">· entre os itens em aberto, ainda sem confirmação</span></h3>
+    <p class="lede">
+      {% if pares_provaveis_linhas %}
+      O sistema encontrou {{ pares_provaveis_linhas|length }} {{ pluralizar(pares_provaveis_linhas|length, 'possível correspondência', 'possíveis correspondências') }} entre itens em aberto (valor e data próximos, texto similar) — {{ pluralizar(pares_provaveis_linhas|length, 'precisa', 'precisam') }} de confirmação manual antes de virar ajuste.
+      {% else %}
+      Nenhum par provável encontrado entre os itens em aberto pelos critérios do sistema (valor e data próximos, texto similar).
+      {% endif %}
+    </p>
+    {% if pares_provaveis_linhas %}
+    <table class="t5"><thead><tr><th>Descrição</th><th>Datas (extrato / contábil)</th><th class="num">Extrato (R$)</th><th class="num">Contábil (R$)</th><th class="num">Diferença (R$)</th><th class="num">Similaridade</th></tr></thead>
+      <tbody>
+        {% for par in pares_provaveis_linhas %}
+        <tr>
+          <td style="white-space:normal">{{ par.descricao }}</td>
+          <td>{{ par.data_extrato }} / {{ par.data_contabil }}</td>
+          <td class="num">{{ par.valor_extrato_fmt }}</td>
+          <td class="num">{{ par.valor_contabil_fmt }}</td>
+          <td class="num">{{ par.diferenca_valor_fmt }}</td>
+          <td class="num">{{ par.similaridade }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+  <div class="keep">
     <h3>Ponte entre os saldos <span class="muted" style="font-weight:400">· decomposição determinística, sem pareamento</span></h3>
     <p class="muted">saldo contábil − saldo do extrato = líquido em aberto (contábil) − líquido em aberto (extrato) + soma das diferenças de valor dos matches por similaridade.</p>
     <div class="bridge">
@@ -257,6 +283,60 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
       <div class="brow"><div>Diferença líquida real (saldo contábil − saldo extrato)</div><div class="num">{{ ponte.alvo_fmt }}</div></div>
       <div class="brow {{ 'residuo' if not ponte.fecha else '' }}"><div>Resíduo (diferença real − ponte calculada)<small>{{ "Ponte fecha sem resíduo." if ponte.fecha else "A ponte NÃO fechou — investigar antes de arquivar." }}</small></div><div class="num">{{ ponte.residuo_fmt }}</div></div>
     </div>
+  </div>
+  <div class="keep">
+    <h3>Ponte detalhada <span class="muted" style="font-weight:400">· visão adicional linha a linha, pareando itens em aberto</span></h3>
+    <p class="lede">
+      Decompõe os itens em aberto em pares identificados (mesma descrição normalizada e mesma data, com valor
+      diferente) e itens que seguem totalmente sem par. Pares já apontados pelo sistema (tabela acima) mantêm essa
+      origem; os demais, encontrados só por regra objetiva de data e descrição, são rotulados
+      <span class="tag w">hipótese do analista</span> — ainda sem confirmação.
+    </p>
+    {% if ponte_detalhada.linhas_pares %}
+    <table class="t5"><thead><tr><th>Descrição</th><th>Datas (extrato / contábil)</th><th class="num">Extrato (R$)</th><th class="num">Contábil (R$)</th><th>Diferença</th></tr></thead>
+      <tbody>
+        {% for linha in ponte_detalhada.linhas_pares %}
+        <tr>
+          <td style="white-space:normal">{{ linha.descricao }}{% if linha.origem == 'hipotese' %} <span class="tag w">hipótese do analista</span>{% endif %}</td>
+          <td>{{ linha.data_extrato }} / {{ linha.data_contabil }}</td>
+          <td class="num {{ 'neg' if linha.valor_extrato < 0 else '' }}">{{ linha.valor_extrato_fmt }}</td>
+          <td class="num {{ 'neg' if linha.valor_contabil < 0 else '' }}">{{ linha.valor_contabil_fmt }}</td>
+          <td><span class="tag {{ 'c' if linha.diferenca_magnitude > 0 else ('w' if linha.diferenca_magnitude < 0 else '') }}">{{ linha.rotulo_diferenca }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% if ponte_detalhada.linhas_sem_par %}
+    <h3 style="margin-top:14px">Itens que seguem sem par nenhum ({{ ponte_detalhada.linhas_sem_par|length }})</h3>
+    <table class="t5"><thead><tr><th>Data</th><th>Descrição</th><th>Lado</th><th class="num">Valor (R$)</th></tr></thead>
+      <tbody>
+        {% for linha in ponte_detalhada.linhas_sem_par %}
+        <tr>
+          <td>{{ linha.data }}</td>
+          <td style="white-space:normal">{{ linha.descricao }}</td>
+          <td>{{ linha.lado }}</td>
+          <td class="num {{ 'neg' if linha.valor < 0 else 'pos' }}">{{ linha.valor_fmt }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    <div class="bridge" style="margin-top:12px">
+      <div class="brow"><div>Soma das diferenças dos pares identificados</div><div class="num">{{ ponte_detalhada.soma_pares_fmt }}</div></div>
+      <div class="brow total"><div>Diferença líquida calculada pela ponte detalhada</div><div class="num">{{ ponte_detalhada.total_detalhado_fmt }}</div></div>
+      <div class="brow"><div>Diferença líquida real dos itens em aberto (líquido contábil − líquido extrato)</div><div class="num">{{ ponte_detalhada.alvo_aberto_fmt }}</div></div>
+      <div class="brow {{ 'residuo' if not ponte_detalhada.fecha else '' }}"><div>Resíduo (diferença real − ponte detalhada)<small>{{ "Ponte detalhada fecha sem resíduo." if ponte_detalhada.fecha else "A ponte detalhada NÃO fechou — investigar antes de arquivar." }}</small></div><div class="num">{{ ponte_detalhada.residuo_fmt }}</div></div>
+    </div>
+  </div>
+  <div class="keep">
+    <h3>Exposição agrupada por natureza <span class="muted" style="font-weight:400">· soma das diferenças dos pares + itens sem par, por recebimento/pagamento</span></h3>
+    <table class="t5"><thead><tr><th>Natureza</th><th class="num">Exposição (R$)</th></tr></thead>
+      <tbody>
+        <tr><td>Recebimentos (créditos)</td><td class="num">{{ exposicao.totais_fmt.recebimentos }}</td></tr>
+        <tr><td>Pagamentos (débitos)</td><td class="num">{{ exposicao.totais_fmt.pagamentos }}</td></tr>
+      </tbody>
+    </table>
   </div>
 </section>
 

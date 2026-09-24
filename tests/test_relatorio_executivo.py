@@ -148,6 +148,12 @@ def test_golden_b_x_c_pdf_contem_os_valores_do_modelo(pdf_executivo_b_x_c):
         "-140,88", "6,67", "147,55",
         "1.213,78", "1.362,33",
         "3,00 a mais", "2,00 a menos",
+        # A2: pares prováveis do sistema, ponte detalhada e exposição
+        # agrupada (issue XCRE-44).
+        "Pares prováveis apontados pelo sistema",
+        "hipótese do analista",
+        "Principal exposição: recebimentos, R$ 150,63",
+        "Investigar os recebimentos de R$ 1.400,00 e R$ 50,63",
     ]
     for valor in valores_esperados:
         assert valor in texto, f"valor {valor!r} não encontrado no PDF Executivo"
