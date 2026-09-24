@@ -12,6 +12,7 @@
 | 2 | 33 | 30 | 0 | 3 | Catálogo criado na fase 2; status finais após o reteste |
 | 3 | 15 | 14 | 0 | 1 | Relatório executivo em PDF; status conforme revisão do squad |
 | 3b | 8 | 8 | 0 | 0 | Correções do relatório executivo; executado na Parte C (2 casos parciais: CT-F3B-03 e CT-F3B-04) |
+| 4 | 7 | 7 | 0 | 0 | Clareza do relatório executivo (pontes, legenda, resumo); executado na revisão por execução (pytest 191, E2E 5/5, PDF 9 páginas) |
 
 *Contagens feitas automaticamente sobre as linhas “Status de execução” de cada caso.*
 
@@ -1637,3 +1638,325 @@ por fase” reflete as contagens reais desta execução (8 casos 3b: 8 `PASS`, 0
 `FAIL`, 0 não executados — 2 deles parciais, informados na própria linha); o
 gerador `scripts/gerar_pdf_casos_de_teste.py` foi executado a partir do
 Markdown e regenerou `docs/casos-de-teste.pdf` sem edição manual do PDF.
+
+---
+
+## Fase 4 — Clareza do relatório executivo (3 itens)
+
+### Escopo, evidência e dependências
+
+Esta seção verifica os três ajustes independentes de clareza da Fase 4 na
+seção 5 do relatório Executivo (pontes consistentes, legenda de rótulos e
+resumo dos itens em aberto), mais as verificações de regressão exigidas pela
+issue. Os casos usam a fixture B × C (`Exemplos/B_1234490.ofx` +
+`Exemplos/C_1234490.ofx`), salvo quando o próprio caso indicar fixture
+sintética. Os três itens foram implementados em três commits separados no
+worktree: `5a00031` (rodada 1), `3021236` (rodada 2) e `1f358e0` (rodada 3).
+
+**Status de execução:** os sete casos abaixo foram executados nesta revisão
+com evidência real e estão `PASS`; nenhum status foi presumido, e nenhuma
+etapa foi pular para simular sucesso.
+
+Evidência desta rodada (revisão por execução, `pytest` completo):
+**191 passed, 1 skipped, 24 warnings em 21,30 s** (baseline da Fase 3b: 185
+passed, 1 skipped; os 6 testes a mais são exatamente os 2 testes novos de
+cada uma das 3 rodadas). Os 6 testes novos, nome a nome, passaram isoladamente
+(`6 passed`): `test_ponte_expoe_ajuste_de_similaridade_como_operacao_de_sinal_unico`,
+`test_pdf_explicita_a_passagem_da_ponte_detalhada_para_a_compacta`,
+`test_pdf_contem_legenda_dos_rotulos_par_provavel_e_hipotese`,
+`test_pdf_continua_com_no_maximo_10_paginas_apos_a_legenda`,
+`test_pdf_resumo_itens_abertos_soma_8_extraida_do_relatorio` e
+`test_resumo_itens_abertos_soma_bate_com_total_sem_par_sintetico`.
+
+Evidência E2E: Streamlit local (`streamlit run app.py`, porta 8578) com
+Chromium headless via Playwright, usando **somente** os arquivos sintéticos da
+issue — login `admin/admin123`, upload de `B_1234490.ofx` e `C_1234490.ofx`,
+análise de divergências e geração/download do Executivo pela interface:
+**5 de 5 etapas `PASS`**. O PDF baixado pela UI (60.362 bytes, WeasyPrint
+70.0, A4) tem **9 páginas** (limite 10), fontes Inter embutidas (`pdffonts`:
+4 faces, todas `emb sub uni = yes`) e foi conferido com `pdftotext`,
+`pdfinfo`, `pdffonts`, extração por `pymupdf` e `pdftoppm -r 110 -png` nas 9
+páginas, todas inspecionadas visualmente uma a uma.
+
+Limitações declaradas desta rodada: (a) sem credencial Git no squad — os
+commits `5a00031`, `3021236`, `1f358e0` e o commit deste catálogo ficam
+**somente no worktree, sem push e sem PR**; (b) `docs/documentacao-final-fase-4.md`
+não foi criado nem alterado (escopo do documentador, depois da revisão de
+segurança); (c) os casos de tempo real (`CT-AUTH-03` e `CT-AUTH-05`) seguem
+**não executados**, por exigirem confirmação explícita do usuário; (d) o
+relatório legado `Completo` não foi regerado nesta rodada — o caminho foi
+coberto no E2E da Fase 3b e o escopo desta fase é o Executivo; (e) não há
+verificação de arquitetura/design nesta revisão, que se limita a rodar e
+conferir.
+
+#### CT-F4-01 — Passagem explícita da ponte detalhada para a ponte compacta
+
+**Objetivo:** Confirmar que a seção 5 explica, em linguagem de leigo e sem
+alterar valores, por que a ponte detalhada fecha em `R$ 148,55` e a compacta
+em `R$ 147,55`, com a operação `R$ 148,55 - R$ 1,00 = R$ 147,55` visível.
+
+**Pré-condição:** Rodada 1 implementada (commit `5a00031`); fixture B × C
+analisada; relatório Executivo gerável pela interface e pelos testes; acesso
+ao texto extraído do PDF e às páginas rasterizadas.
+
+**Passos:**
+
+1. Gerar o relatório Executivo de B × C (pela interface E2E e, de forma
+   independente, pelo próprio teste automatizado).
+2. Localizar, na ponte detalhada, a linha `Diferença líquida calculada pela
+   ponte detalhada` e conferir o valor `R$ 148,55`.
+3. Localizar a linha seguinte de ajuste e conferir rótulo e valor
+   (`Ajuste das diferenças aceitas por similaridade`, `R$ -1,00`) e a nota de
+   que é o mesmo ajuste já somado na ponte compacta, não um valor novo.
+4. Localizar a linha `Diferença líquida da ponte compacta, após o ajuste` e
+   conferir `R$ 147,55`.
+5. Localizar o parágrafo de resumo logo abaixo da tabela e conferir a fórmula
+   completa `R$ 148,55 - R$ 1,00 = R$ 147,55` e a explicação em frase simples.
+6. Normalizar os espaços do texto extraído (`pdftotext` quebra a linha entre
+   `R$` e `1,00`) e confirmar a substring completa.
+7. Abrir a página rasterizada correspondente e ler a frase na imagem.
+8. Executar `test_ponte_expoe_ajuste_de_similaridade_como_operacao_de_sinal_unico`
+   (ajuste negativo do caso real e caso sintético de ajuste positivo) e
+   `test_pdf_explicita_a_passagem_da_ponte_detalhada_para_a_compacta`.
+
+**Resultado esperado:** Os três valores aparecem na tabela com o ajuste
+identificado como `- R$ 1,00` (não como número solto), a fórmula completa
+consta no parágrafo em português claro, nenhum número de B × C muda e os dois
+testes do item passam.
+
+**Status de execução:** `PASS` — PDF real da UI: a ponte detalhada mostra
+`R$ 148,55`, `Ajuste das diferenças aceitas por similaridade … R$ -1,00` com
+a nota “o mesmo ajuste já somado na ponte compacta acima — não é um valor
+novo”, e `Diferença líquida da ponte compacta, após o ajuste … R$ 147,55`. O
+parágrafo “Em resumo: a ponte detalhada (linha a linha) fecha em R$ 148,55 …”
+fecha com **`R$ 148,55 - R$ 1,00 = R$ 147,55`** — a substring aparece íntegra
+após normalização de espaços e é legível na página 6 rasterizada (no
+`pdftotext` bruto ela só aparece partida na quebra de linha). Os dois testes
+do item passaram (`2 passed`) e os invariantes do PDF seguem intactos.
+
+#### CT-F4-02 — Legenda dos rótulos “par provável” e “hipótese do analista”
+
+**Objetivo:** Confirmar que a seção 5 traz uma legenda curta (1–2 linhas na
+intenção, no máximo um parágrafo) distinguindo o cálculo automático por
+similaridade da regra objetiva de descrição + data que ainda exige
+confirmação, sem estourar o limite de páginas.
+
+**Pré-condição:** Rodada 2 implementada (commit `3021236`); fixture B × C
+analisada; texto extraído do PDF e páginas rasterizadas disponíveis; contagem
+de páginas acessível.
+
+**Passos:**
+
+1. Gerar o relatório Executivo de B × C.
+2. Abrir o início da seção 5 e localizar o parágrafo “Como ler os rótulos
+   desta seção”.
+3. Conferir que o rótulo `par provável apontado pelo sistema` é descrito como
+   correspondência calculada automaticamente por similaridade (valor, data e
+   texto parecidos).
+4. Conferir que `hipótese do analista` é descrito como par encontrado por
+   regra objetiva de mesma descrição e mesma data, sem respaldo do sistema.
+5. Conferir que a legenda informa a necessidade de confirmação manual.
+6. Contar as ocorrências do cabeçalho da legenda no texto do PDF inteiro.
+7. Conferir a contagem de páginas (`pdfinfo`).
+8. Executar `test_pdf_contem_legenda_dos_rotulos_par_provavel_e_hipotese` e
+   `test_pdf_continua_com_no_maximo_10_paginas_apos_a_legenda`.
+
+**Resultado esperado:** Os dois rótulos e seus significados aparecem uma única
+vez, no início da seção 5, e o PDF continua com no máximo 10 páginas.
+
+**Status de execução:** `PASS` — no PDF real da UI a legenda aparece **uma
+única vez** no corpo do texto (contagem exata: 1) e diz: “par provável
+apontado pelo sistema” é “uma correspondência calculada automaticamente por
+similaridade (valor, data e texto parecidos)”; “hipótese do analista” é “um
+par encontrado só por uma regra objetiva de mesma descrição e mesma data, sem
+respaldo do sistema”; e “Os dois ainda precisam de confirmação manual antes de
+virar ajuste”. O PDF tem **9 páginas** (limite 10). Os 2 testes do item
+passaram.
+
+#### CT-F4-03 — Resumo dos 8 itens em aberto com soma coerente
+
+**Objetivo:** Confirmar que o início da seção 5 mostra a contagem dos itens em
+aberto em pares prováveis, pares por hipótese e sem par nenhum, derivada da
+saída real do relatório, com soma igual a 8.
+
+**Pré-condição:** Rodada 3 implementada (commit `1f358e0`); fixture B × C
+analisada; texto extraído do PDF disponível para extração por regex.
+
+**Passos:**
+
+1. Gerar o relatório Executivo de B × C.
+2. Ler a linha de resumo no início da seção 5 e extrair as três contagens por
+   regex do texto renderizado, sem usar valores fixados no teste.
+3. Somar as três contagens e comparar com o total de itens em aberto
+   (4 no extrato + 4 no contábil = 8).
+4. Cruzar as contagens com as tabelas da mesma seção: 2 linhas em `Pares
+   prováveis apontados pelo sistema`, 1 par adicional rotulado
+   `hipótese do analista` na ponte detalhada e 2 linhas em `Itens que seguem
+   sem par nenhum`.
+5. Confirmar que cada lado de um par conta como item individual, para a soma
+   fechar com o total de 8.
+6. Executar `test_pdf_resumo_itens_abertos_soma_8_extraida_do_relatorio` e
+   `test_resumo_itens_abertos_soma_bate_com_total_sem_par_sintetico` (cenário
+   sintético 2+1+3).
+
+**Resultado esperado:** A linha de resumo mostra 4 + 2 + 2, a soma é 8, os
+rótulos são os mesmos da legenda da Rodada 2 e nenhum número de B × C muda.
+
+**Status de execução:** `PASS` — o PDF real traz “Desses 8 itens em aberto:
+**4** estão em par provável apontado pelo sistema, **2** em par por hipótese do
+analista e **2** seguem sem par nenhum”; a extração por regex do texto
+renderizado devolve `(4, 2, 2)` e soma **8**. O cruzamento com as tabelas
+bate: 2 pares prováveis × 2 lados = 4, 1 par por hipótese × 2 lados = 2, 2
+itens sem par = 2 (total 8), contra “Extrato sem lançamento (4)” +
+“Lançamentos sem extrato (4)”. Os 2 testes do item passaram, incluindo o
+cenário sintético fora do caso B × C.
+
+#### CT-F4-04 — Limite de páginas e rasterização de todas as páginas
+
+**Objetivo:** Garantir que os três textos novos não estouram o limite de 10
+páginas e que todas as páginas renderizadas continuam legíveis e completas.
+
+**Pré-condição:** Os três itens implementados; PDF Executivo de B × C gerado
+pela interface; `pdfinfo`, `pdftoppm` e ferramenta de inspeção de imagens
+disponíveis.
+
+**Passos:**
+
+1. Contar as páginas com `pdfinfo`.
+2. Rasterizar todas as páginas com `pdftoppm -r 110 -png`, sem limitar a
+   inspeção à capa.
+3. Abrir a imagem de cada página, uma a uma, e conferir que títulos, tabelas,
+   cards, rodapés e as três adições da Fase 4 são legíveis.
+4. Conferir especificamente a página com o início da seção 5 (resumo + legenda)
+   e a página da ponte detalhada (fórmula e linhas de ajuste).
+5. Verificar que nada se sobrepõe, nada é cortado e que os cabeçalhos de
+   tabela repetem corretamente.
+6. Conferir a contracapa e os totais finais.
+
+**Resultado esperado:** No máximo 10 páginas; todas as páginas rasterizadas
+legíveis, sem corte nem sobreposição; resumo, legenda e fórmula legíveis na
+imagem.
+
+**Status de execução:** `PASS` — `pdfinfo` acusa **9 páginas** (limite 10),
+A4 retrato, 60.362 bytes. As 9 foram rasterizadas com `pdftoppm -r 110` em
+PNGs de 910×1287 e inspecionadas uma a uma: capa, sumário, síntese executiva e
+indicadores, composição/correspondências, seção 5 (resumo 4+2+2 e legenda
+inteira legíveis), ponte compacta, ponte detalhada (fórmula
+`R$ 148,55 - R$ 1,00 = R$ 147,55` legível na imagem), alertas/recomendações,
+informações para auditoria e contracapa com os totais (`77,8% (14 de 18)`,
+`8 itens`, `R$ -140,88`, `R$ 147,55`). Nenhum corte, sobreposição ou texto
+ilegível observado; fontes Inter embutidas em todas as 4 faces.
+
+#### CT-F4-05 — Regressão dos invariantes B × C e suíte completa
+
+**Objetivo:** Garantir que os três ajustes de clareza não alteraram nenhum
+número de referência nem quebraram nenhum teste pré-existente.
+
+**Pré-condição:** Os três commits da Fase 4 presentes no worktree; suíte
+completa executável; PDF Executivo de B × C gerado com a configuração padrão.
+
+**Passos:**
+
+1. Executar `pytest -q` completo e registrar contagem, falhas e tempo.
+2. Conferir a contagem de testes novos esperada (6) e o único `skip`
+   conhecido.
+3. Gerar o PDF Executivo de B × C.
+4. Conferir 18 transações, 18 lançamentos e 14 correspondências (seção 8).
+5. Conferir 11 correspondências exatas, 3 por similaridade, cobertura `77,8%`,
+   cobertura efetiva `61,1%` e 4 itens abertos em cada lado.
+6. Conferir saldo do extrato `R$ -140,88`, saldo contábil `R$ 6,67`, diferença
+   líquida `R$ 147,55` e resíduo `R$ 0,00`.
+7. Conferir a ponte detalhada em `R$ 148,55` e a relação
+   `148,55 - 1,00 = 147,55` sem contradição com a compacta.
+
+**Resultado esperado:** A suíte passa sem regressões (o total sobe apenas
+pelos 6 testes novos da fase); todos os invariantes permanecem iguais aos de
+referência; nenhuma frase do PDF contradiz outro número do mesmo PDF.
+
+**Status de execução:** `PASS` — `pytest -q` completo: **191 passed, 1 skipped
+em 21,30 s**, sem falhas (baseline 185 + 6 novos = 191; o único `skip`
+continua sendo o cenário 0/0/0/0 do gerador). No PDF real da UI: 18
+transações, 18 lançamentos, 14 correspondências, 11 exatas, 3 por similaridade,
+cobertura `77,8%` (4 ocorrências no texto), cobertura efetiva `61,1%` (4
+ocorrências), `4 no extrato + 4 no contábil`, saldo `R$ -140,88`, saldo
+contábil `R$ 6,67`, diferença líquida `R$ 147,55` (7 ocorrências), resíduo
+`R$ 0,00` na ponte compacta e na detalhada, e ponte detalhada em `R$ 148,55`.
+A recalculação manual com os valores impressos (1.362,33 − 1.213,78 − 1,00 =
+147,55) fecha em `R$ 0,00` de resíduo.
+
+#### CT-F4-06 — E2E real com Streamlit e navegador
+
+**Objetivo:** Confirmar por execução real (não por teste unitário) que a
+interface sobe, autentica, importa os OFX da issue, analisa e entrega o PDF do
+Executivo com os textos novos.
+
+**Pré-condição:** Streamlit local executável; navegador Chromium via
+Playwright; somente os arquivos de exemplo da issue
+(`Exemplos/B_1234490.ofx`, `Exemplos/C_1234490.ofx`); banco de usuários local
+zerado (criação do `admin` padrão pelo próprio app).
+
+**Passos:**
+
+1. Subir `streamlit run app.py` em porta local dedicada e confirmar HTTP 200.
+2. No navegador, autenticar com `admin` / `admin123` e conferir a tela
+   logada.
+3. Em `Importação de Dados`, carregar `B_1234490.ofx` no extrato e
+   `C_1234490.ofx` no contábil e conferir os três avisos de carregamento.
+4. Em `Análise de Divergências`, executar a análise e conferir a conclusão.
+5. Em `Relatório Final`, confirmar que o formato padrão é `Executivo`,
+   preencher empresa/analista e gerar o relatório.
+6. Baixar o PDF pelo link da interface e conferir a mensagem de sucesso.
+7. Conferir no PDF baixado a ponte, a legenda, o resumo dos 8 itens e a
+   contagem de páginas.
+
+**Resultado esperado:** As 5 etapas da interface passam, o PDF é baixado pela
+UI e contém os três textos da Fase 4 com os invariantes intactos.
+
+**Status de execução:** `PASS` — 5 de 5 etapas: login `PASS`, importação
+`PASS` (“Extrato carregado”, “Lançamentos carregados”, “Dados carregados com
+sucesso”), análise `PASS`, formato padrão `PASS (Executivo)`, download
+`PASS (relatorio_executivo_bxc.pdf, 60362 bytes)`, com mensagem “Relatório
+Executivo gerado com sucesso” e 5 telas de evidência capturadas. O PDF baixado
+pela UI é o mesmo conferido nos demais casos: 9 páginas, fórmula da ponte,
+legenda única e resumo 4+2+2 presentes.
+
+#### CT-F4-07 — Catálogo único, regeneração do PDF e rastreabilidade
+
+**Objetivo:** Verificar que a Fase 4 entra em um único arquivo de casos, que o
+PDF é regenerado a partir do Markdown e que nada além do catálogo foi
+alterado nesta revisão.
+
+**Pré-condição:** `docs/casos-de-teste.md` e
+`scripts/gerar_pdf_casos_de_teste.py` presentes no checkout; dependências
+(`weasyprint`, `markdown`) instaladas.
+
+**Passos:**
+
+1. Confirmar que a seção “Fase 4” existe em `docs/casos-de-teste.md` e que os
+   IDs `CT-F4-01` a `CT-F4-07` são únicos no arquivo.
+2. Conferir em cada caso: objetivo, pré-condição, passos numerados, resultado
+   esperado e uma linha de status.
+3. Conferir a linha da Fase 4 na tabela “Resumo por fase”.
+4. Executar `scripts/gerar_pdf_casos_de_teste.py` a partir do Markdown e
+   confirmar que `docs/casos-de-teste.pdf` foi regenerado.
+5. Verificar no `git status`/`git diff` que, entre os arquivos de documentação,
+   somente `docs/casos-de-teste.md` (e o PDF regenerado a partir dele) mudou.
+6. Confirmar que `docs/documentacao-final-fase-4.md` não foi criado nem
+   alterado nesta rodada.
+7. Confirmar que não há alegação de `PASS` sem evidência real desta rodada e
+   que o registro de “sem push/PR” está explícito.
+
+**Resultado esperado:** Um único catálogo com a seção Fase 4 completa, PDF
+regenerável a partir do `.md`, nenhum outro documento alterado e as limitações
+declaradas em texto.
+
+**Status de execução:** `PASS` — a seção “Fase 4” foi acrescentada ao fim de
+`docs/casos-de-teste.md` com os 7 IDs `CT-F4-01` a `CT-F4-07` únicos, cada um
+com objetivo, pré-condição, passos numerados, resultado esperado e status; a
+tabela “Resumo por fase” ganhou a linha da Fase 4 com as contagens reais desta
+execução; `scripts/gerar_pdf_casos_de_teste.py` foi executado e regenerou
+`docs/casos-de-teste.pdf` sem edição manual. No worktree, entre os arquivos
+de documentação, somente `docs/casos-de-teste.md` e o PDF gerado dele mudaram;
+`docs/documentacao-final-fase-4.md` não existe no checkout e não foi tocado
+(`git status --short` lista apenas os dois arquivos do catálogo). Não houve
+push nem PR (o squad não tem credencial Git).
