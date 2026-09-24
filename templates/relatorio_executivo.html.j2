@@ -28,7 +28,7 @@ p{margin:0 0 8px}
 .sub{font-size:16px;color:var(--ink2);max-width:46ch;margin:0;line-height:1.5}
 .cover-meta{display:grid;grid-template-columns:repeat(4,1fr);border-top:2px solid var(--navy);margin:0}
 .cover-meta div{padding:12px 14px 12px 0;border-bottom:1px solid var(--line)}
-.cover-meta dt{font-size:10.5px;color:var(--muted);margin:0 0 2px}.cover-meta dd{margin:0;font-size:12.5px;font-weight:600}
+.cover-meta dt{font-size:10.5px;color:var(--muted);margin:0 0 2px}.cover-meta dd{margin:0;font-size:12.5px;font-weight:600;white-space:nowrap}
 .cover-foot{display:flex;justify-content:space-between;margin-top:18px;font-size:10.5px;color:var(--muted);align-items:flex-end}
 .stamp{display:inline-block;padding:3px 11px;border:1.5px solid var(--warnline);color:var(--warnink);border-radius:3px;font-weight:600;font-size:11px;background:var(--warnbg)}
 .toc{break-after:page;padding-top:10px}
@@ -58,6 +58,8 @@ h3{font-size:14px;font-weight:600;margin:20px 0 6px}
 .legend{display:flex;flex-wrap:wrap;gap:5px 20px;font-size:11px;color:var(--ink2)}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
 table{width:100%;border-collapse:collapse;font-size:11px}
+.t3{table-layout:fixed;font-size:10px}
+.t3 thead th{font-size:9.5px;white-space:normal}
 thead{display:table-header-group}
 thead th{text-align:left;font-weight:600;font-size:10.5px;color:var(--ink2);background:var(--zebra);border-top:1.5px solid var(--navy);border-bottom:1px solid var(--line);padding:7px 8px;white-space:nowrap}
 thead th.num{text-align:right}
@@ -82,7 +84,7 @@ tr{break-inside:avoid}
 .rec h4{margin:0 0 3px;font-size:12.5px}.rec p{margin:0;color:var(--ink2);font-size:11.5px}.impact{font-size:11px;color:var(--muted);text-align:right;white-space:nowrap}
 .checklist{list-style:none;padding:0;margin:8px 0 0;display:grid;gap:7px}.checklist li{display:flex;gap:9px;font-size:11.5px}
 .checklist li::before{content:"";flex:none;width:12px;height:12px;margin-top:2px;border:1.5px solid var(--slate);border-radius:2px}
-.keep{break-inside:avoid}.pb{break-before:page}
+.keep{break-inside:avoid}
 h2,h3,h4,.lede,.headline{break-after:avoid}
 .back-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}.back-grid h3{margin-top:0}.back-grid ul{margin:0;padding-left:16px}.back-grid li{font-size:11.5px;color:var(--ink2)}
 .sign{display:grid;grid-template-columns:1.4fr 1fr;gap:36px;margin-top:36px}.sign div{border-top:1px solid var(--slate);padding-top:5px;font-size:11px;color:var(--muted)}
@@ -195,6 +197,9 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
     <h3>Casamentos por similaridade ({{ total_similaridade }}): exigem conferência</h3>
     {% if matches_similaridade_linhas %}
     <table class="t3">
+      <colgroup>
+        <col style="width:29%"><col style="width:19%"><col style="width:9%"><col style="width:9%"><col style="width:29%"><col style="width:5%">
+      </colgroup>
       <thead><tr><th>Descrição</th><th>Datas (extrato / contábil)</th><th class="num">Extrato (R$)</th><th class="num">Contábil (R$)</th><th>Diferença</th><th class="num">Conf.</th></tr></thead>
       <tbody>
         {% for linha in matches_similaridade_linhas %}
@@ -256,7 +261,7 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
       {% endif %}
     </p>
     {% if pares_provaveis_linhas %}
-    <table class="t5"><thead><tr><th>Descrição</th><th>Datas (extrato / contábil)</th><th class="num">Extrato (R$)</th><th class="num">Contábil (R$)</th><th class="num">Diferença (R$)</th><th class="num">Similaridade</th></tr></thead>
+    <table class="t5"><thead><tr><th style="width:30%">Descrição</th><th>Datas (extrato / contábil)</th><th class="num">Extrato (R$)</th><th class="num">Contábil (R$)</th><th class="num">Diferença (R$)</th><th class="num">Similaridade</th></tr></thead>
       <tbody>
         {% for par in pares_provaveis_linhas %}
         <tr>
@@ -293,7 +298,7 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
       <span class="tag w">hipótese do analista</span> — ainda sem confirmação.
     </p>
     {% if ponte_detalhada.linhas_pares %}
-    <table class="t5"><thead><tr><th>Descrição</th><th>Datas (extrato / contábil)</th><th class="num">Extrato (R$)</th><th class="num">Contábil (R$)</th><th>Diferença</th></tr></thead>
+    <table class="t5"><thead><tr><th style="width:36%">Descrição</th><th>Datas (extrato / contábil)</th><th class="num">Extrato (R$)</th><th class="num">Contábil (R$)</th><th>Diferença</th></tr></thead>
       <tbody>
         {% for linha in ponte_detalhada.linhas_pares %}
         <tr>
@@ -375,7 +380,7 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
   </div>
 </section>
 
-<section id="auditoria" class="pb">
+<section id="auditoria">
   <div class="keep">
     <h2>8. Informações para auditoria</h2>
     <p class="lede">Dados de rastreabilidade e campos de validação do responsável.</p>

@@ -154,6 +154,12 @@ def test_golden_b_x_c_pdf_contem_os_valores_do_modelo(pdf_executivo_b_x_c):
         "hipótese do analista",
         "Principal exposição: recebimentos, R$ 150,63",
         "Investigar os recebimentos de R$ 1.400,00 e R$ 50,63",
+        # A4: período em uma linha só e descrição sem quebra indevida —
+        # se qualquer um tivesse voltado a quebrar em duas linhas, a
+        # extração de texto não produziria mais esta substring exata
+        # (um espaço simples entre as duas partes).
+        "15/06/2025 a 16/07/2025",
+        "Aguia Branca - Passage - Parcela 6/6",
     ]
     for valor in valores_esperados:
         assert valor in texto, f"valor {valor!r} não encontrado no PDF Executivo"
@@ -193,12 +199,16 @@ def test_pdf_tem_no_maximo_10_paginas_e_referencia_gera_9_ou_menos(pdf_executivo
     assert len(reader.pages) <= 10
 
 
-def test_quebra_de_pagina_forcada_so_em_capa_sumario_secao8_e_contracapa():
-    """CT-F3-10: nenhuma página do corpo (seções 1 a 7) pode ficar quase
-    vazia por uma quebra forçada indevida. Em vez de inferir isso do
-    PDF renderizado (frágil), verifica a fonte da regra no template:
-    break-before/break-after:page só pode existir nos 4 pontos
-    permitidos (capa, sumário, seção 8, contracapa)."""
+def test_quebra_de_pagina_forcada_so_em_capa_sumario_e_contracapa():
+    """CT-F3-10 (revisado na issue XCRE-44, item A4c): nenhuma página do
+    corpo (seções 1 a 8) pode ficar quase vazia por uma quebra forçada
+    indevida. A seção 8 (auditoria) deixou de forçar quebra de página
+    antes de si (removido o `class="pb"` do `<section id="auditoria">`):
+    como a seção 8 é curta, forçá-la a começar numa página nova deixava
+    a página anterior E a própria seção 8 com bastante espaço vazio —
+    agora ela flui naturalmente após a seção 7. Restam só 3 pontos fixos
+    de quebra: capa, sumário e contracapa. Em vez de inferir isso do PDF
+    renderizado (frágil), verifica a fonte da regra no template."""
     caminho = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "templates", "relatorio_executivo.html.j2",
@@ -214,10 +224,11 @@ def test_quebra_de_pagina_forcada_so_em_capa_sumario_secao8_e_contracapa():
     for regra in permitidos:
         assert regra in css, f"regra de quebra de página esperada não encontrada: {regra!r}"
 
+    assert 'class="pb"' not in css
+
     total_break_before = css.count("break-before:page")
     total_break_after = css.count("break-after:page")
-    # .backcover (break-before) + #auditoria.pb via classe .pb (break-before) = 2
-    assert total_break_before == 2, "só backcover e a classe .pb (seção 8) podem forçar quebra antes"
+    assert total_break_before == 1, "só a contracapa pode forçar quebra antes"
     # .cover + .toc = 2
     assert total_break_after == 2, "só a capa e o sumário podem forçar quebra depois"
 
@@ -265,6 +276,54 @@ def test_todas_as_paginas_rasterizam_sem_erro(pdf_executivo_b_x_c, tmp_path):
     paginas = list(tmp_path.glob("pagina*.png"))
     reader = PdfReader(pdf_executivo_b_x_c)
     assert len(paginas) == len(reader.pages)
+
+
+@pytest.mark.skipif(not POPPLER_DISPONIVEL, reason="pdftoppm (poppler-utils) não disponível neste ambiente")
+def test_nenhuma_pagina_do_corpo_fica_com_mais_de_metade_vazia(pdf_executivo_b_x_c, tmp_path):
+    """Item A4c (issue XCRE-44): rasteriza TODAS as páginas com
+    `pdftoppm` e mede, por pixel, quanto de cada página (abaixo da
+    margem superior, acima do rodapé) fica em branco depois do último
+    conteúdo — não apenas confere o retorno do comando. A diretriz da
+    issue é "~40% vazia"; o limite automatizado aqui é mais folgado
+    (55%) de propósito, para não ficar frágil a variações de
+    fonte/hinting entre ambientes, mas ainda pega regressões grosseiras
+    (ex.: uma seção inteira empurrada para uma página quase vazia). A
+    validação fina (~35-38% medido no cenário B×C) é visual, registrada
+    na entrega da issue via rasterização manual."""
+    from PIL import Image
+    import numpy as np
+
+    prefixo = str(tmp_path / "pagina")
+    resultado = subprocess.run(
+        ["pdftoppm", "-png", "-r", "80", pdf_executivo_b_x_c, prefixo],
+        capture_output=True, text=True,
+    )
+    assert resultado.returncode == 0, resultado.stderr
+
+    paginas = sorted(tmp_path.glob("pagina*.png"))
+    assert len(paginas) >= 3  # capa + sumário + ao menos mais uma
+
+    # Capa, sumário e contracapa têm layout de "cartaz"/lista curta com
+    # espaço em branco deliberado (ver .cover/.toc/.backcover no
+    # template) — fora do escopo desta checagem, que é sobre páginas de
+    # CORPO (seções 1 a 8, que começam depois do sumário).
+    paginas_corpo = paginas[2:-1]
+    assert paginas_corpo, "esperado ao menos uma página de corpo entre sumário e contracapa"
+
+    for pagina in paginas_corpo:
+        arr = np.array(Image.open(pagina).convert("L"))
+        h, _ = arr.shape
+        margem_topo = int(h * 0.065)  # ~15mm de margem superior em A4
+        margem_rodape = int(h * 0.05)  # rodapé com paginação/rótulo
+        corpo = arr[margem_topo:h - margem_rodape, :]
+        linhas_com_conteudo = np.where((corpo < 250).any(axis=1))[0]
+        if len(linhas_com_conteudo) == 0:
+            continue  # página sem nenhum conteúdo textual não é o alvo desta checagem
+        pct_vazio_abaixo = 100 - (linhas_com_conteudo.max() / corpo.shape[0] * 100)
+        assert pct_vazio_abaixo <= 55, (
+            f"{pagina.name}: {pct_vazio_abaixo:.1f}% vazia abaixo do último conteúdo "
+            "(limite automatizado 55%, diretriz da issue ~40%)"
+        )
 
 
 # --- CT-F3-13: escape de HTML e bloqueio de recurso remoto ---
