@@ -11,7 +11,7 @@
 | 1 | — | — | — | — | Sem catálogo formal na época; resultados dos testes executados (seção abaixo) |
 | 2 | 33 | 30 | 0 | 3 | Catálogo criado na fase 2; status finais após o reteste |
 | 3 | 15 | 14 | 0 | 1 | Relatório executivo em PDF; status conforme revisão do squad |
-| 3b | 8 | 0 | 0 | 8 | Correções do relatório executivo; execução aguardando a implementação da Parte A |
+| 3b | 8 | 8 | 0 | 0 | Correções do relatório executivo; executado na Parte C (2 casos parciais: CT-F3B-03 e CT-F3B-04) |
 
 *Contagens feitas automaticamente sobre as linhas “Status de execução” de cada caso.*
 
@@ -1287,10 +1287,23 @@ fontes estão embutidas, input malicioso é escapado, nenhum segredo vaza e
 Esta seção verifica as quatro correções da Parte A no relatório Executivo. Os
 casos usam a fixture B × C, formada por `Exemplos/B_1234490.ofx` (extrato) e
 `Exemplos/C_1234490.ofx` (contábil), salvo quando o próprio caso indicar uma
-fixture sintética. **Status de execução:** todos os casos abaixo permanecem
-`NAO EXECUTADO`, porque a implementação da Parte A não iniciou nesta rodada e
-nenhuma execução nova foi realizada. As evidências históricas das Fases 2 e 3
-foram preservadas e não são reutilizadas como aprovação das correções 3b.
+fixture sintética. **Status de execução:** os oito casos foram executados na
+Parte C (revisão por execução) com evidência real, depois que a Parte A
+(A1–A4) e o catálogo único da Parte B passaram a estar no worktree — 6 casos
+`PASS` completos e 2 `PASS` parciais (CT-F3B-03 e CT-F3B-04, com a limitação
+de cada um descrita na própria linha de status). Nenhum status foi presumido.
+
+Evidência desta rodada (revisão por execução): `pytest` completo
+(**185 passed, 1 skipped**, 21,25 s); E2E real no Streamlit local com
+Chromium (login `admin/admin123`, importação de `B_1234490.ofx` e
+`C_1234490.ofx`, análise e geração do Executivo e do legado Completo pela
+interface, 7 de 7 etapas `PASS`); PDF do Executivo gerado pela UI
+(9 páginas, WeasyPrint 70.0), com `pdftotext`, `pdfinfo`, `pdffonts`,
+extração de anotações/links e `pdftoppm` em todas as páginas, todas
+inspecionadas visualmente. Os casos `CT-AUTH-03` (bloqueio/15 min) e
+`CT-AUTH-05` (expiração de sessão) **não foram executados** nesta rodada —
+dependem de confirmação explícita do usuário (casos de tempo real) e
+permanecem como estavam.
 
 Para os casos que gerarem PDF, executar também `pdftotext` e `pdftoppm` em
 todas as páginas; “rasterizar” significa converter cada página em imagem para
@@ -1328,8 +1341,16 @@ mesmas regras de magnitude, e igualdade em débito ou crédito nunca exibe
 “a mais” ou “a menos”. A ponte continua usando `contábil - extrato`, com o
 sinal explicado na legenda.
 
-**Status de execução:** `NAO EXECUTADO` — depende da implementação da Parte A1
-e de execução dos testes/PDF; não há evidência nova nesta rodada.
+**Status de execução:** `PASS` — Parte C: E2E real (Streamlit + Chromium)
+gerou o Executivo de B × C pela interface e o texto do PDF traz, na tabela de
+casamentos por similaridade, `R$ 3,00 a mais no contábil` (Águia Branca,
+-40,30/-43,30), `R$ 2,00 a menos no contábil` (Dell, -22,90/-20,90) e `Sem
+diferença de valor` (Uber* Trip, -7,89/-7,89), com as datas de Dell
+(15/06/2025 / 16/06/2025) e de Uber* Trip (14/07/2025 / 16/07/2025) visíveis
+à parte na coluna “Datas (extrato / contábil)”. A ponte segue algébrica
+(“saldo contábil − saldo do extrato”, R$ 147,55). Passos 6–8 cobertos pelos
+casos de crédito/igualdade de `tests/test_rotulo_diferenca_magnitude.py`
+(receita maior/menor/igual), todos dentro dos 185 passed.
 
 #### CT-F3B-02 — Preservação dos pares prováveis apontados pelo sistema
 
@@ -1358,9 +1379,16 @@ com seus valores e diferenças corretos. Elas permanecem identificadas como
 possíveis correspondências, não entram artificialmente na contagem de matches
 exatos e não desaparecem da narrativa ou da ponte determinística.
 
-**Status de execução:** `NAO EXECUTADO` — requer a implementação A2 e uma
-execução real do relatório; o PDF anexado registra o estado anterior sem essa
-validação.
+**Status de execução:** `PASS` — Parte C: no PDF Executivo gerado pela UI, a
+seção 5 tem a tabela `Pares prováveis apontados pelo sistema` com exatamente
+2 linhas: Mercadolivre*Salonlin - Parcela 8/10 (-60,50 / -62,50, diferença
+R$ 2,00, datas 15/06/2025 / 18/06/2025) e Pagamento recebido (1.300,00 /
+1.400,00, diferença R$ 100,00, mesma data), ambas com similaridade 100% e
+sem marcas de match exato. Os totais permanecem 14 correspondências, 11
+exatas, 3 por similaridade e 4 itens abertos por lado (cards, seção 3 e seção
+8 do mesmo PDF). A exclusão de linhas já aceitas como exatas e a contagem de
+2 pares são confirmadas também por
+`tests/test_pares_provaveis_e_ponte_detalhada.py` (185 passed).
 
 #### CT-F3B-03 — Ponte detalhada determinística e indicação de resíduo
 
@@ -1393,8 +1421,20 @@ resíduo `R$ 0,00` quando a equação fecha. A variação inconsistente mostra o
 resíduo com sinal e valor, informa que a ponte não fecha e nunca afirma
 fechamento por arredondamento ou texto estático.
 
-**Status de execução:** `NAO EXECUTADO` — não houve implementação A2 nem
-execução das fixtures sintéticas nesta rodada.
+**Status de execução:** `PASS` (parcial) — Parte C: passos 1–5 executados de
+verdade. No PDF de B × C, a ponte determinística compacta continua como
+visão principal e fecha (`Resíduo … R$ 0,00`, “Ponte fecha sem resíduo”), e a
+ponte detalhada traz o par `Uber* Trip 11/07/2025, -20,80 (extrato) /
+-25,80 (contábil)` rotulado literalmente `hipótese do analista`, fechando em
+`R$ 0,00`. Limitação dos passos 6–7: a variação com um valor aberto alterado
+em R$ 1,00 foi gerada como PDF real (`bxc_variacao_mais_1_real.pdf`) e a
+ponte continuou fechando em `R$ 0,00` — a decomposição é recalculada a
+partir do mesmo conjunto de dados, então essa variação não produz
+inconsistência; o caminho de resíduo NÃO nulo foi verificado apenas em nível
+de módulo, por `test_ponte_detalhada_mostra_residuo_quando_nao_fecha` e
+`test_ponte_mostra_residuo_explicito_quando_dados_sao_inconsistentes` (ambos
+nos 185 passed, com `residuo_fmt != "R$ 0,00"`). O enunciado do passo 6
+deveria ser revisto pelo arquiteto.
 
 #### CT-F3B-04 — Exposição agrupada, alertas e recomendação de recebimentos
 
@@ -1428,8 +1468,22 @@ recebimentos de R$ 1.400,00 e R$ 50,63 e informa impacto de R$ 150,63. O
 limiar usado aparece documentado e nenhuma narrativa afirma causa não
 observável nos dados.
 
-**Status de execução:** `NAO EXECUTADO` — depende da implementação A2, dos
-testes de configuração e de nova geração do PDF.
+**Status de execução:** `PASS` (parcial) — Parte C: passos 1–4 e 7 executados
+com PDF real da UI. A manchete da síntese é `Principal exposição:
+recebimentos, R$ 150,63`; a tabela de exposição mostra Recebimentos (créditos)
+`R$ 150,63` e Pagamentos (débitos) `R$ 11,92`; a recomendação `Prioridade
+alta` é “Investigar os recebimentos de R$ 1.400,00 e R$ 50,63” com impacto
+`R$ 150,63`, repetida no checklist; pares fora da lista do sistema aparecem
+como `hipótese do analista`. Passo 8 executado: gerando de novo com o limiar
+alterado (`ALERTA_DIVERGENCIA_VALOR_MINIMA = 100,00`), o alerta de severidade
+`critico` aparece na seção 6 citando “R$ 150,63, acima do limiar de
+R$ 100,00 configurado para este alerta”; com o limiar padrão restaurado
+(R$ 500,00) o alerta crítico não dispara. Limitação do passo 5: em B × C o
+alerta crítico não é impresso (exposição abaixo do limiar) e o PDF padrão não
+exibe o número do limiar — ele está documentado no código
+(`ALERTA_DIVERGENCIA_VALOR_MINIMA` em `modules/report_executivo.py`, com a
+justificativa da revisão A2c) e só aparece no texto do alerta quando ele
+dispara.
 
 #### CT-F3B-05 — Pluralização em zero, um e vários elementos
 
@@ -1456,8 +1510,18 @@ singular e valores maiores usam o plural correto em todos os pontos. Nenhuma
 ocorrência de `(s)`, `(ns)` ou forma equivalente permanece no PDF ou no texto
 renderizado.
 
-**Status de execução:** `NAO EXECUTADO` — depende da implementação A3 e da
-execução dos casos de fronteira.
+**Status de execução:** `PASS` — Parte C: três PDFs Executivo gerados de
+verdade (B × C com múltiplos casamentos e itens; fixture sintética com 2
+casamentos e 0 itens em aberto; fixture sintética com exatamente 1 casamento
+e 1 item) e o texto extraído de cada um com `pdftotext` tem **0 ocorrências**
+de `(s)`, `(ns)` e `(es)`. Formas observadas: “1 casamento é exato”, “1 item
+segue sem par”, “1 item ficou sem correspondência”, “1 casamento detalhado”,
+“0 itens em aberto”, “Nenhum item.”, “2 casamentos detalhados”. Testes
+unitários do helper com 0/1/N (`tests/test_pluralizacao.py`) e render do
+template sem placeholder passam; observação: o cenário 0/0/0/0 do pytest é o
+único `1 skipped` da suite (o gerador exige DataFrames não vazios), e o caso
+de zero é coberto pelo helper (`0 itens`) e pelo PDF com zero itens em
+aberto.
 
 #### CT-F3B-06 — Layout do período, descrições e ocupação das páginas
 
@@ -1487,8 +1551,16 @@ linha; descrições da tabela de similaridade permanecem em uma linha; e nenhuma
 página do corpo excede aproximadamente 40% de área vazia sem uma justificativa
 de estrutura. Todas as páginas rasterizadas são legíveis e completas.
 
-**Status de execução:** `NAO EXECUTADO` — nenhuma geração/rasterização nova
-foi realizada porque A4 não foi implementada.
+**Status de execução:** `PASS` — Parte C: `pdfinfo` acusa **9 páginas**
+(limite 10), A4 retrato; as 9 foram rasterizadas com `pdftoppm -r 110` e
+inspecionadas uma a uma. Na capa (e na contracapa) `15/06/2025 a 16/07/2025`
+ocupa uma única linha. Na tabela de casamentos por similaridade,
+`Aguia Branca - Passage - Parcela 6/6`, `Dell - Parcela 8/10` e `Uber* Trip`
+ficam cada uma em uma linha, sem corte. Medição por pixel (maior faixa
+horizontal totalmente branca dentro do conteúdo de cada página): páginas de
+corpo 6,8% a 35,4% — abaixo do parâmetro de ~40% —, exceto o sumário
+(60,2%), cuja estrutura de lista curta é a justificativa; nenhum corte,
+sobreposição ou conteúdo cortado foi observado nas 9 imagens.
 
 #### CT-F3B-07 — Regressão dos invariantes B × C e fechamento da ponte
 
@@ -1516,9 +1588,16 @@ permanecem iguais aos valores de referência; a ponte fecha em `R$ 147,55` com
 resíduo `R$ 0,00`; e o PDF não contém números ou frases incompatíveis entre
 cards, tabelas, narrativa e ponte.
 
-**Status de execução:** `NAO EXECUTADO` — a Parte A não iniciou após as
-tentativas interrompidas por limite de sessão do provedor; nenhum resultado é
-presumido.
+**Status de execução:** `PASS` — Parte C: `pytest -q` completo rodou
+**185 passed, 1 skipped** em 21,25 s (baseline da fase 3: 144). No PDF Executivo
+de B × C gerado pela UI: 18 transações e 18 lançamentos (seção 8), 14
+correspondências, 11 exatas, 3 por similaridade, cobertura `77,8%`, cobertura
+efetiva `61,1%`, 4 itens abertos em cada lado, saldo do extrato `R$ -140,88`,
+saldo contábil `R$ 6,67` e diferença líquida `R$ 147,55`; recalculando a
+ponte com os valores impressos (1.362,33 − 1.213,78 − 1,00 = 147,55) o resíduo
+é `R$ 0,00` e o texto diz “Ponte fecha sem resíduo” (idem a ponte detalhada,
+148,55). Rótulos, exposição (150,63 / 11,92), pluralização e paginação
+(9 páginas) não contradizem esses números.
 
 #### CT-F3B-08 — Atualização do catálogo único e rastreabilidade dos status
 
@@ -1548,6 +1627,13 @@ presentes no checkout; os dois catálogos de fase antigos removidos.
 e os oito casos 3b permanecem explicitamente `NAO EXECUTADO` até a execução
 real. O resumo não conta a linha de legenda nem fabrica resultados.
 
-**Status de execução:** `NAO EXECUTADO` — a consolidação documental está sendo
-preparada nesta rodada, mas a validação final do PDF e a execução dos casos da
-Parte A dependem das etapas seguintes do squad.
+**Status de execução:** `PASS` — Parte C: `docs/casos-de-teste-fase-2.md` e
+`docs/casos-de-teste-fase-3.md` não existem no checkout (o diretório `docs/`
+tem só `casos-de-teste.md`, `casos-de-teste.pdf` e as duas documentações de
+fase); as seções Fase 1, Fase 2, Fase 3 e Fase 3b estão no mesmo arquivo; os
+IDs `CT-F3B-01` a `CT-F3B-08` existem, cada um com objetivo, pré-condição,
+passos numerados, resultado esperado e uma linha de status; a tabela “Resumo
+por fase” reflete as contagens reais desta execução (8 casos 3b: 8 `PASS`, 0
+`FAIL`, 0 não executados — 2 deles parciais, informados na própria linha); o
+gerador `scripts/gerar_pdf_casos_de_teste.py` foi executado a partir do
+Markdown e regenerou `docs/casos-de-teste.pdf` sem edição manual do PDF.
