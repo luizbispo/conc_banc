@@ -11,5 +11,5 @@ requests
 openpyxl
 python-dateutil
 scikit-learn
-weasyprint
-Jinja2
+weasyprint==70.0
+Jinja2==3.1.6

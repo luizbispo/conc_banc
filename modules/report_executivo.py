@@ -15,7 +15,6 @@ Contrato de dados de entrada (reaproveitado, sem duplicar cálculo):
   (float, sinal preservado) e 'descricao'.
 """
 import base64
-import html
 import os
 import re
 import tempfile

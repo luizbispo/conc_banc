@@ -595,7 +595,10 @@ def main():
 
                     # Verificar se o arquivo foi criado
                     if not os.path.exists(pdf_path):
-                        motivo = f"Arquivo PDF não foi criado em {pdf_path}"
+                        # Mensagem sem o caminho local (revisão de segurança,
+                        # XCRE-43): o path completo em /tmp não deve vazar
+                        # para o log de auditoria nem para a tela do usuário.
+                        motivo = "Arquivo PDF não foi criado pelo gerador de relatório"
                         audit.log_report_generation(
                             formato=formato_relatorio.lower(), user=usuario_atual, lote=lote_auditoria,
                             success=False, error_message=motivo,
