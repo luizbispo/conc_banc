@@ -3,10 +3,13 @@ Testes de regressão para modules/audit_logger.py.
 
 Cobrem: persistência em SQLite (a trilha de auditoria não pode sumir a
 cada reinício do processo), clear_audit_log não apagar mais o histórico
-persistido (append-only), e a correção do bug de cópia rasa em
+persistido (append-only), a correção do bug de cópia rasa em
 export_audit_log que apagava 'details'/'metadata' do log original quando
-se exportava a versão resumida.
+se exportava a versão resumida, e a rotação por tamanho (issue XCRE-42,
+Parte A, item 5d): antes audit_log.db crescia indefinidamente, sem
+nenhuma política de retenção.
 """
+import os
 import sqlite3
 
 from modules.audit_logger import AuditLogger, AuditAction, AuditSeverity
@@ -89,3 +92,67 @@ def test_get_audit_trail_filters_by_severity(tmp_path):
 
     assert len(trail) == 1
     assert trail.iloc[0]["user"] == "b"
+
+
+# --- Rotação por tamanho (issue XCRE-42, Parte A, item 5d) ---
+
+def test_nao_rotaciona_abaixo_do_limite(tmp_path):
+    db_path = str(tmp_path / "audit.db")
+    logger = AuditLogger(db_path=db_path)
+    logger.max_size_bytes = 10 * 1024 * 1024  # 10MB — bem acima do que este teste grava
+
+    for i in range(5):
+        logger.log_action(action=AuditAction.USER_ACTION, user=f"user{i}", description="evento")
+
+    # Nenhum arquivo rotacionado deve existir; tudo continua no arquivo ativo.
+    arquivos = os.listdir(tmp_path)
+    assert arquivos == ["audit.db"]
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0] == 5
+    conn.close()
+
+
+def test_rotaciona_ao_ultrapassar_limite_e_preserva_historico_antigo(tmp_path):
+    db_path = str(tmp_path / "audit.db")
+    logger = AuditLogger(db_path=db_path)  # max_size_bytes padrão (50MB): sem rotação ainda
+
+    logger.log_action(action=AuditAction.USER_ACTION, user="ana", description="evento antigo")
+
+    # Só agora reduzimos o limite para forçar a rotação na PRÓXIMA
+    # gravação — o arquivo atual (contendo o evento da Ana) já excede 1
+    # byte, então ele será arquivado antes do evento do Bruno ser gravado.
+    logger.max_size_bytes = 1
+    logger.log_action(action=AuditAction.USER_ACTION, user="bruno", description="evento novo")
+
+    arquivos = sorted(os.listdir(tmp_path))
+    arquivados = [a for a in arquivos if a != "audit.db"]
+    assert len(arquivados) == 1  # arquivo antigo foi renomeado, não apagado
+
+    # O histórico antigo (evento da Ana) continua íntegro no arquivo arquivado.
+    conn_antigo = sqlite3.connect(str(tmp_path / arquivados[0]))
+    linhas_antigas = conn_antigo.execute("SELECT user FROM audit_log").fetchall()
+    conn_antigo.close()
+    assert linhas_antigas == [("ana",)]
+
+    # O arquivo ativo (novo) tem só o evento novo (Bruno) — a rotação
+    # acontece ANTES de gravar o evento que dispara a checagem.
+    conn_novo = sqlite3.connect(db_path)
+    linhas_novas = conn_novo.execute("SELECT user FROM audit_log").fetchall()
+    conn_novo.close()
+    assert linhas_novas == [("bruno",)]
+
+
+def test_rotacao_nao_quebra_leitura_apos_reinicio(tmp_path):
+    """Uma nova instância (simulando reinício do processo) continua
+    funcionando normalmente após uma rotação ter ocorrido."""
+    db_path = str(tmp_path / "audit.db")
+    logger1 = AuditLogger(db_path=db_path)
+    logger1.max_size_bytes = 1
+    logger1.log_action(action=AuditAction.USER_ACTION, user="ana", description="evento 1")
+    logger1.log_action(action=AuditAction.USER_ACTION, user="bruno", description="evento 2")
+
+    logger2 = AuditLogger(db_path=db_path)  # "reinício"
+    trail = logger2.get_audit_trail(persisted=True)
+
+    assert len(trail) == 1
+    assert trail.iloc[0]["user"] == "bruno"

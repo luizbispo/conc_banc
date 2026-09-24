@@ -52,6 +52,13 @@ class AuditLogger:
         self.audit_log = []
         self.session_id = str(uuid.uuid4())
         self.db_path = db_path or os.getenv("CONCILIACAO_AUDIT_DB_PATH", "audit_log.db")
+        # Política de rotação por TAMANHO: sem nenhum limite, audit_log.db
+        # cresce para sempre. Ao ultrapassar max_size_bytes, o arquivo
+        # ATIVO é renomeado com um sufixo de timestamp (arquivo antigo
+        # preservado, nunca editado/apagado — continua append-only) e um
+        # arquivo novo é iniciado no caminho original. Nenhuma linha
+        # existente é tocada; só decide QUANDO começar um arquivo novo.
+        self.max_size_bytes = int(os.getenv("CONCILIACAO_AUDIT_MAX_SIZE_MB", "50")) * 1024 * 1024
         self._init_storage()
 
     def _init_storage(self) -> None:
@@ -73,7 +80,23 @@ class AuditLogger:
         conn.commit()
         conn.close()
 
+    def _rotacionar_se_necessario(self) -> None:
+        """Arquiva o arquivo ativo se ele já ultrapassou o limite de
+        tamanho, e recria um arquivo novo no caminho original."""
+        if not os.path.exists(self.db_path):
+            return
+        if os.path.getsize(self.db_path) < self.max_size_bytes:
+            return
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        destino = f"{self.db_path}.{timestamp}"
+        if os.path.exists(destino):
+            destino = f"{destino}_{uuid.uuid4().hex[:8]}"
+        os.rename(self.db_path, destino)
+        logger.info("audit_log.db rotacionado por tamanho: histórico preservado em %s", destino)
+        self._init_storage()
+
     def _persist(self, log_entry: Dict[str, Any]) -> None:
+        self._rotacionar_se_necessario()
         conn = sqlite3.connect(self.db_path)
         conn.execute('''
             INSERT INTO audit_log
