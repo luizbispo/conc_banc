@@ -187,6 +187,35 @@ def test_pdf_tem_no_maximo_10_paginas_e_referencia_gera_9_ou_menos(pdf_executivo
     assert len(reader.pages) <= 10
 
 
+def test_quebra_de_pagina_forcada_so_em_capa_sumario_secao8_e_contracapa():
+    """CT-F3-10: nenhuma página do corpo (seções 1 a 7) pode ficar quase
+    vazia por uma quebra forçada indevida. Em vez de inferir isso do
+    PDF renderizado (frágil), verifica a fonte da regra no template:
+    break-before/break-after:page só pode existir nos 4 pontos
+    permitidos (capa, sumário, seção 8, contracapa)."""
+    caminho = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "templates", "relatorio_executivo.html.j2",
+    )
+    with open(caminho, encoding="utf-8") as f:
+        css = f.read()
+
+    permitidos = {
+        ".cover{height:262mm;padding:6mm 0 0;break-after:page}",
+        ".toc{break-after:page;padding-top:10px}",
+        ".backcover{height:255mm;padding:4mm 0 0;break-before:page;break-inside:avoid}",
+    }
+    for regra in permitidos:
+        assert regra in css, f"regra de quebra de página esperada não encontrada: {regra!r}"
+
+    total_break_before = css.count("break-before:page")
+    total_break_after = css.count("break-after:page")
+    # .backcover (break-before) + #auditoria.pb via classe .pb (break-before) = 2
+    assert total_break_before == 2, "só backcover e a classe .pb (seção 8) podem forçar quebra antes"
+    # .cover + .toc = 2
+    assert total_break_after == 2, "só a capa e o sumário podem forçar quebra depois"
+
+
 def test_sumario_tem_oito_links_para_as_oito_secoes(pdf_executivo_b_x_c):
     reader = PdfReader(pdf_executivo_b_x_c)
     destinos_esperados = {
