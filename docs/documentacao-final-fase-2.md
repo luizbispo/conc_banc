@@ -96,7 +96,7 @@ lote e qual formato, sem anotar senhas.
   (11 exatos + 3 heurísticos), 77,8%, 8 divergências (4+4), somas na tela e no PDF
   R$ 1.386,22 / R$ 1.538,93, período real 15/06/2025 a 16/07/2025 na tela e no PDF,
   justificativas ricas, PDF sem credenciais.
-- Documento `docs/casos-de-teste-fase-2.md`: **31 PASS / 0 FAIL / 3 NÃO EXECUTADO**
+- Documento `docs/casos-de-teste-fase-2.md`: **30 PASS / 0 FAIL / 3 NÃO EXECUTADO (33 casos, contagem conferida no arquivo)**
   (evolução: rodada anterior 25 PASS / 6 FAIL — CON-02, CON-06, REL-01, REL-03, REL-04,
   AUD-01 — todos resolvidos pelos commits `0123316` + `da39737`).
 - App publicada `https://concbanctest.streamlit.app/` (ainda no `main` 7aaa6bf, fase 1):
@@ -108,7 +108,7 @@ lote e qual formato, sem anotar senhas.
 
 Todos os 124 testes automáticos passam. O teste completo de ponta a ponta (abrir o app
 de verdade, entrar, importar os dois extratos, analisar e gerar o PDF) passou nas 28
-etapas, com os números exatamente iguais aos esperados. Dos 34 casos do catálogo, 31
+etapas, com os números exatamente iguais aos esperados. Dos 33 casos do catálogo, 30
 passam e 3 ficaram para depois de propósito (explicados abaixo) — nenhum falhando.
 
 ---
