@@ -220,6 +220,13 @@ def calcular_ponte(
     )
     alvo = round(saldo_contabil - saldo_extrato, 2)
     residuo = round(alvo - valor_calculado, 2)
+    # Passagem explícita da ponte DETALHADA (soma dos itens em aberto, sem
+    # o ajuste por similaridade) para a ponte COMPACTA acima (issue
+    # XCRE-48, item 1): mesmo `soma_diferencas_similaridade`, mas exibido
+    # como operação de sinal único ("148,55 - 1,00 = 147,55") em vez do
+    # valor com sinal embutido ("+ R$ -1,00"), que confunde quem não é
+    # da área.
+    ajuste_similaridade_operador = "-" if soma_diferencas_similaridade < 0 else "+"
     return {
         "liquido_extrato_aberto": liquido_extrato_aberto,
         "liquido_extrato_aberto_fmt": _fmt_valor(liquido_extrato_aberto),
@@ -227,6 +234,8 @@ def calcular_ponte(
         "liquido_contabil_aberto_fmt": _fmt_valor(liquido_contabil_aberto),
         "soma_diferencas_similaridade": soma_diferencas_similaridade,
         "soma_diferencas_similaridade_fmt": _fmt_valor(soma_diferencas_similaridade),
+        "ajuste_similaridade_abs_fmt": _fmt_valor(abs(soma_diferencas_similaridade)),
+        "ajuste_similaridade_operador": ajuste_similaridade_operador,
         "valor_calculado": valor_calculado,
         "valor_calculado_fmt": _fmt_valor(valor_calculado),
         "alvo": alvo,
