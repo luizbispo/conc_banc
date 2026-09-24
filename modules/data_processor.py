@@ -12,19 +12,58 @@ import warnings
 import base64
 warnings.filterwarnings('ignore')
 
+# --- CONFIGURAÇÃO DE REDE DO CloudImporter ---
+# Antes: sem timeout (uma origem lenta/travada podia prender o processo
+# indefinidamente), sem allowlist real de domínio (identificar_tipo_url
+# usava "dominio in url.lower()" — substring, não hostname; uma URL como
+# "https://drive.google.com.evil.example/x" ou
+# "https://evil.example/?u=drive.google.com" também "continha"
+# drive.google.com e passava) e sem limite de redirecionamentos
+# (requests segue até 30 por padrão). Os três controles abaixo são
+# configuráveis por variável de ambiente, com padrão documentado.
+CLOUD_REQUEST_TIMEOUT_SEGUNDOS = int(os.getenv("CONCILIACAO_CLOUD_TIMEOUT_SEGUNDOS", "15"))
+CLOUD_MAX_REDIRECTS = int(os.getenv("CONCILIACAO_CLOUD_MAX_REDIRECTS", "5"))
+CLOUD_DOMINIOS_PERMITIDOS = tuple(
+    dominio.strip().lower()
+    for dominio in os.getenv(
+        "CONCILIACAO_CLOUD_ALLOWED_DOMAINS", "drive.google.com,sharepoint.com,1drv.ms"
+    ).split(",")
+    if dominio.strip()
+)
+
+
+def _hostname_permitido(url: str) -> bool:
+    """Verifica o HOSTNAME real da URL contra a allowlist (não uma busca
+    por substring na URL inteira, que um domínio-espelho ou parâmetro de
+    query poderia falsificar)."""
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    if not host:
+        return False
+    return any(host == dominio or host.endswith("." + dominio) for dominio in CLOUD_DOMINIOS_PERMITIDOS)
+
+
 class CloudImporter:
     def __init__(self):
         self.session = requests.Session()
+        self.session.max_redirects = CLOUD_MAX_REDIRECTS
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
             'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
         })
-    
+
     def identificar_tipo_url(self, url):
-        """Identifica o tipo de URL"""
+        """Identifica o tipo de URL, restrito à allowlist de domínios
+        confiáveis (CLOUD_DOMINIOS_PERMITIDOS) — qualquer outro hostname
+        é 'desconhecido' e nunca chega a gerar uma requisição HTTP (ver
+        buscar_arquivos_por_padrao, que só trata os tipos abaixo)."""
+        if not _hostname_permitido(url):
+            return 'desconhecido'
+
         url_lower = url.lower()
-        
         if 'drive.google.com' in url_lower:
             if '/file/' in url_lower:
                 return 'google_drive_file'
@@ -69,7 +108,7 @@ class CloudImporter:
             # URL da API do Google Drive (simplificada)
             api_url = f"https://drive.google.com/drive/folders/{folder_id}"
             
-            response = self.session.get(api_url)
+            response = self.session.get(api_url, timeout=CLOUD_REQUEST_TIMEOUT_SEGUNDOS)
             if response.status_code == 200:
                 # Extrair informações da página (método simplificado)
                 files = []
@@ -95,7 +134,7 @@ class CloudImporter:
             # URL de download direto
             download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
             
-            response = self.session.get(download_url, allow_redirects=True)
+            response = self.session.get(download_url, allow_redirects=True, timeout=CLOUD_REQUEST_TIMEOUT_SEGUNDOS)
             
             # Verificar se há confirmação de download
             if "confirm=" in response.url:
@@ -104,7 +143,7 @@ class CloudImporter:
                 if confirm_match:
                     confirm_token = confirm_match.group(1)
                     download_url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm_token}"
-                    response = self.session.get(download_url, allow_redirects=True)
+                    response = self.session.get(download_url, allow_redirects=True, timeout=CLOUD_REQUEST_TIMEOUT_SEGUNDOS)
             
             if response.status_code == 200:
                 # Tentar obter o nome real do arquivo
@@ -194,7 +233,7 @@ class CloudImporter:
                         
                         tentativa_url = f"{site_url}/:x:/r/personal/{folder_path}/{quote(nome_arquivo)}?csf=1&web=1&e=download"
                         
-                        response = self.session.get(tentativa_url, allow_redirects=True)
+                        response = self.session.get(tentativa_url, allow_redirects=True, timeout=CLOUD_REQUEST_TIMEOUT_SEGUNDOS)
                         if response.status_code == 200 and len(response.content) > 100:
                             arquivos_encontrados.append({
                                 'content': response.content,
