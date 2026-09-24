@@ -79,10 +79,19 @@ def _clicar_gerar_relatorio(label, *args, **kwargs):
     return kwargs.get("key") == "btn_gerar_relatorio_analise"
 
 
+# A partir da fase 3 (XCRE-43), "Executivo" é o formato padrão do
+# seletor — estes dois testes continuam cobrindo especificamente o
+# caminho LEGADO ("Completo", modules/report_generator.py), então fixam
+# o valor do seletor em vez de depender do default.
+def _selecionar_completo(label, options, *args, **kwargs):
+    return "Completo"
+
+
 def test_geracao_com_sucesso_registra_evento_de_auditoria(sessao_autenticada):
     audit_path = sessao_autenticada
 
-    with mock.patch.object(st, "button", side_effect=_clicar_gerar_relatorio):
+    with mock.patch.object(st, "button", side_effect=_clicar_gerar_relatorio), \
+         mock.patch.object(st, "selectbox", side_effect=_selecionar_completo):
         import pages.gerar_relatorio as pagina
         pagina.main()
 
@@ -111,6 +120,7 @@ def test_geracao_com_falha_registra_evento_de_auditoria_com_erro(sessao_autentic
     audit_path = sessao_autenticada
 
     with mock.patch.object(st, "button", side_effect=_clicar_gerar_relatorio), \
+         mock.patch.object(st, "selectbox", side_effect=_selecionar_completo), \
          mock.patch("modules.report_generator.gerar_relatorio_analise", side_effect=RuntimeError("falha sintética de geração")):
         import pages.gerar_relatorio as pagina
         import importlib

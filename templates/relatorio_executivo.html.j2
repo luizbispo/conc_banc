@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Relatório de Conciliação Bancária · Conta {{ conta_analisada }}</title>
+<style>
+@font-face{font-family:"Inter";font-weight:400;src:url(data:font/woff2;base64,{{ fontes['400'] }}) format("woff2");}
+@font-face{font-family:"Inter";font-weight:500;src:url(data:font/woff2;base64,{{ fontes['500'] }}) format("woff2");}
+@font-face{font-family:"Inter";font-weight:600;src:url(data:font/woff2;base64,{{ fontes['600'] }}) format("woff2");}
+@font-face{font-family:"Inter";font-weight:700;src:url(data:font/woff2;base64,{{ fontes['700'] }}) format("woff2");}
+:root{--ink:#0f1f38;--ink2:#334155;--muted:#64748b;--line:#d9dfe8;--line2:#e9edf3;--zebra:#f6f7f9;--navy:#0b2545;--navy2:#13315c;--slate:#475569;--pos:#1f4e79;--neg:#8c3b3b;
+--warnbg:#fbf7ee;--warnline:#d9c28f;--warnink:#6b4f12;--critbg:#faf1f1;--critline:#d3a5a5;--critink:#6f2a2a;--okbg:#f3f6fa;--okline:#c3d1e0;}
+*{box-sizing:border-box}
+html,body{margin:0;background:#fff;color:var(--ink);font-family:"Inter","Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:11.5px;line-height:1.5;font-feature-settings:"tnum" 1;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+p{margin:0 0 8px}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.neg{color:var(--neg)}.pos{color:var(--pos)}.muted{color:var(--muted)}
+@page{size:A4 portrait;margin:15mm;@bottom-left{content:"Conciliação bancária - Conta {{ conta_footer }}";font:8.5pt Inter,sans-serif;color:#64748b}@bottom-right{content:"Página " counter(page);font:8.5pt Inter,sans-serif;color:#64748b}}
+@page :first{@bottom-left{content:none}@bottom-right{content:none}}
+.cover,.backcover{display:flex;flex-direction:column;justify-content:space-between}
+.cover{height:262mm;padding:6mm 0 0;break-after:page}
+.backcover{height:255mm;padding:4mm 0 0;break-before:page;break-inside:avoid}
+.cover-top{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.cover-top strong{display:block;color:var(--ink);font-size:12.5px;font-weight:600}
+.cover-main{padding-left:24px;border-left:5px solid var(--navy);margin:30px 0}
+.kind{font-size:13px;color:var(--slate);margin:0 0 12px;font-weight:500}
+.cover-main h1{font-size:42px;line-height:1.08;letter-spacing:-.03em;font-weight:700;color:var(--navy);margin:0 0 16px;max-width:14ch}
+.sub{font-size:16px;color:var(--ink2);max-width:46ch;margin:0;line-height:1.5}
+.cover-meta{display:grid;grid-template-columns:repeat(4,1fr);border-top:2px solid var(--navy);margin:0}
+.cover-meta div{padding:12px 14px 12px 0;border-bottom:1px solid var(--line)}
+.cover-meta dt{font-size:10.5px;color:var(--muted);margin:0 0 2px}.cover-meta dd{margin:0;font-size:12.5px;font-weight:600}
+.cover-foot{display:flex;justify-content:space-between;margin-top:18px;font-size:10.5px;color:var(--muted);align-items:flex-end}
+.stamp{display:inline-block;padding:3px 11px;border:1.5px solid var(--warnline);color:var(--warnink);border-radius:3px;font-weight:600;font-size:11px;background:var(--warnbg)}
+.toc{break-after:page;padding-top:10px}
+.toc ol{list-style:none;margin:0;padding:0}.toc li{border-bottom:1px solid var(--line2)}
+.toc a{display:flex;gap:10px;padding:10px 6px;color:inherit;text-decoration:none;align-items:baseline}
+.toc b{width:24px;color:var(--navy2);font-weight:600}.toc span{flex:1}.toc em{font-style:normal;color:var(--muted);font-size:11px}
+section{padding-top:20px}
+h2{font-size:20px;line-height:1.25;font-weight:700;letter-spacing:-.01em;color:var(--navy);margin:0 0 4px;padding-bottom:9px;border-bottom:2px solid var(--navy)}
+h3{font-size:14px;font-weight:600;margin:20px 0 6px}
+.lede{color:var(--muted);margin:8px 0 14px}
+.headline{font-size:18px;line-height:1.35;font-weight:600;letter-spacing:-.01em;margin:16px 0 16px;max-width:46ch}
+.takeaways{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.take{border:1px solid var(--line);border-left:4px solid var(--navy2);border-radius:3px;padding:12px 14px}
+.take.risk{border-left-color:var(--neg)}.take.watch{border-left-color:#b39344}
+.take h4{margin:0 0 3px;font-size:12.5px;font-weight:600}.take p{margin:0;color:var(--ink2);font-size:11.5px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
+.kpi{border:1px solid var(--line);border-top:3px solid var(--navy2);border-radius:3px;padding:12px 15px;display:flex;flex-direction:column;gap:2px;break-inside:avoid}
+.kpi.alert{border-top-color:var(--neg)}
+.kpi .label{font-size:11px;color:var(--muted);font-weight:500}
+.kpi .value{font-size:25px;line-height:1.15;font-weight:700;letter-spacing:-.02em;color:var(--navy)}
+.kpi .value small{font-size:13px;font-weight:600;margin-right:3px;color:var(--muted)}
+.kpi .delta{font-size:11px;font-weight:600;margin-top:3px}.kpi .note{font-size:10.5px;color:var(--muted)}
+.kpi.alert .value{color:var(--neg)}
+.stack{display:flex;height:30px;border-radius:3px;overflow:hidden;margin:12px 0 7px;border:1px solid var(--line)}
+.stack span{display:flex;align-items:center;padding-left:9px;font-size:11px;font-weight:600;color:#fff}
+.s1{background:var(--navy2)}.s2{background:#6f8fb5}.s3{background:#cfd6e0;color:#263447!important;justify-content:center;padding:0!important}
+.legend{display:flex;flex-wrap:wrap;gap:5px 20px;font-size:11px;color:var(--ink2)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead{display:table-header-group}
+thead th{text-align:left;font-weight:600;font-size:10.5px;color:var(--ink2);background:var(--zebra);border-top:1.5px solid var(--navy);border-bottom:1px solid var(--line);padding:7px 8px;white-space:nowrap}
+thead th.num{text-align:right}
+tbody td{padding:5px 8px;border-bottom:1px solid var(--line2);vertical-align:top;white-space:nowrap}
+tbody tr:nth-child(even) td{background:var(--zebra)}
+tfoot td{padding:7px 8px;font-weight:700;border-top:1.5px solid var(--navy);border-bottom:1px solid var(--line)}
+tr{break-inside:avoid}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:10.5px;font-weight:600;border:1px solid var(--okline);background:var(--okbg);color:var(--pos)}
+.tag.w{background:var(--warnbg);border-color:var(--warnline);color:var(--warnink)}.tag.c{background:var(--critbg);border-color:var(--critline);color:var(--critink)}
+.bridge{margin-top:10px;border:1px solid var(--line);border-radius:3px;padding:4px 16px 12px}
+.brow{display:grid;grid-template-columns:1.6fr 100px;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line2);font-size:11.5px;break-inside:avoid}
+.brow.total{font-weight:700;border-top:2px solid var(--navy);border-bottom:0;margin-top:3px;padding-top:10px}
+.brow.residuo{font-weight:700;color:var(--neg)}
+.brow small{display:block;color:var(--muted);font-weight:400;font-size:10.5px}
+.callout{border:1px solid;border-radius:3px;padding:10px 14px;margin:12px 0;font-size:11.5px;break-inside:avoid}
+.callout strong{display:block;margin-bottom:2px;font-size:12px}
+.warn{background:var(--warnbg);border-color:var(--warnline);color:var(--warnink)}.crit{background:var(--critbg);border-color:var(--critline);color:var(--critink)}.info{background:var(--okbg);border-color:var(--okline);color:var(--ink2)}
+.recs{display:grid;gap:10px;margin-top:12px}
+.rec{display:grid;grid-template-columns:88px 1fr auto;gap:14px;border:1px solid var(--line);border-radius:3px;padding:12px 14px;align-items:start;break-inside:avoid}
+.prio{font-size:10.5px;font-weight:700;padding:3px 0;text-align:center;border-radius:3px}
+.alta{background:var(--critbg);color:var(--critink);border:1px solid var(--critline)}.media{background:var(--warnbg);color:var(--warnink);border:1px solid var(--warnline)}.baixa{background:var(--okbg);color:var(--pos);border:1px solid var(--okline)}
+.rec h4{margin:0 0 3px;font-size:12.5px}.rec p{margin:0;color:var(--ink2);font-size:11.5px}.impact{font-size:11px;color:var(--muted);text-align:right;white-space:nowrap}
+.checklist{list-style:none;padding:0;margin:8px 0 0;display:grid;gap:7px}.checklist li{display:flex;gap:9px;font-size:11.5px}
+.checklist li::before{content:"";flex:none;width:12px;height:12px;margin-top:2px;border:1.5px solid var(--slate);border-radius:2px}
+.keep{break-inside:avoid}.pb{break-before:page}
+h2,h3,h4,.lede,.headline{break-after:avoid}
+.back-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}.back-grid h3{margin-top:0}.back-grid ul{margin:0;padding-left:16px}.back-grid li{font-size:11.5px;color:var(--ink2)}
+.sign{display:grid;grid-template-columns:1.4fr 1fr;gap:36px;margin-top:36px}.sign div{border-top:1px solid var(--slate);padding-top:5px;font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header class="cover" id="capa">
+  <div class="cover-top"><div><strong>{{ empresa_nome }}</strong>Relatório de conciliação bancária</div><div style="text-align:right"><strong>{{ classificacao_documento }}</strong>Uso restrito</div></div>
+  <div class="cover-main"><p class="kind">Relatório executivo</p><h1>Conciliação Bancária</h1><p class="sub">Análise de correspondências entre o extrato bancário e os lançamentos contábeis da conta {{ conta_analisada }}.</p></div>
+  <div>
+    <dl class="cover-meta">
+      <div><dt>Conta analisada</dt><dd>{{ conta_analisada }}</dd></div>
+      <div><dt>Período</dt><dd>{{ periodo }}</dd></div>
+      <div><dt>Data de emissão</dt><dd>{{ data_emissao_str }}</dd></div>
+      <div><dt>Formato</dt><dd>Executivo</dd></div>
+    </dl>
+    <div class="cover-foot"><span class="stamp">Rascunho · aguarda validação do responsável</span><span>Analista: {{ analista_nome }}</span></div>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Sumário">
+  <h2>Sumário</h2>
+  <ol>
+    <li><a href="#sintese"><b>1</b><span>Síntese executiva</span><em>Principais conclusões</em></a></li>
+    <li><a href="#kpis"><b>2</b><span>Indicadores-chave</span><em>Cobertura, saldos e divergências</em></a></li>
+    <li><a href="#composicao"><b>3</b><span>Composição da conciliação</span><em>Resultado por camada de análise</em></a></li>
+    <li><a href="#correspondencias"><b>4</b><span>Correspondências identificadas</span><em>{{ total_matches }} casamento(s) detalhados</em></a></li>
+    <li><a href="#divergencias"><b>5</b><span>Divergências e ponte de reconciliação</span><em>{{ total_aberto }} item(ns) em aberto</em></a></li>
+    <li><a href="#alertas"><b>6</b><span>Alertas e pontos de atenção</span><em>Riscos e inconsistências</em></a></li>
+    <li><a href="#recomendacoes"><b>7</b><span>Recomendações</span><em>Ações por prioridade</em></a></li>
+    <li><a href="#auditoria"><b>8</b><span>Informações para auditoria</span><em>Metodologia e assinatura</em></a></li>
+  </ol>
+</nav>
+
+<section id="sintese">
+  <div class="keep">
+    <h2>1. Síntese executiva</h2>
+    <p class="headline">{{ headline }}</p>
+    <div class="takeaways">
+      {% for take in takeaways %}
+      <div class="take {{ take.classe }}"><h4>{{ take.titulo }}</h4><p>{{ take.texto }}</p></div>
+      {% endfor %}
+    </div>
+  </div>
+  {% if observacoes %}
+  <div class="callout info"><strong>Observações e contexto informado</strong>{{ observacoes }}</div>
+  {% endif %}
+</section>
+
+<section id="kpis">
+  <div class="keep">
+    <h2>2. Indicadores-chave</h2>
+    <p class="lede">Valores em reais (R$). Saldo é a soma líquida das movimentações, com saídas negativas.</p>
+    <div class="kpis">
+      <div class="kpi"><span class="label">Cobertura do sistema</span><span class="value">{{ ("%.1f"|format(cobertura_sistema))|replace(".", ",") }}<small>%</small></span><span class="delta pos">{{ total_matches }} de {{ total_extrato }} transações</span><span class="note">Inclui exatas e por similaridade</span></div>
+      <div class="kpi"><span class="label">Cobertura efetiva (só exatas)</span><span class="value">{{ ("%.1f"|format(cobertura_efetiva))|replace(".", ",") }}<small>%</small></span><span class="delta pos">{{ total_exatos }} correspondência(s) exata(s)</span><span class="note">Valor e data idênticos</span></div>
+      <div class="kpi"><span class="label">Por similaridade</span><span class="value">{{ total_similaridade }}</span><span class="delta" style="color:var(--warnink)">Exigem conferência</span><span class="note">Valor ou data diferem</span></div>
+      <div class="kpi alert"><span class="label">Divergências (itens em aberto)</span><span class="value">{{ total_aberto }}</span><span class="delta neg">{{ total_extrato_aberto }} no extrato + {{ total_contabil_aberto }} no contábil</span><span class="note">Sem correspondência automática</span></div>
+      <div class="kpi"><span class="label">Saldo do extrato</span><span class="value {{ 'neg' if saldo_extrato < 0 else '' }}"><small>R$</small>{{ "%.2f"|format(saldo_extrato)|replace(",", "@")|replace(".", ",")|replace("@", ".") }}</span><span class="note">Soma líquida de {{ total_extrato }} transações</span></div>
+      <div class="kpi"><span class="label">Saldo contábil</span><span class="value {{ 'neg' if saldo_contabil < 0 else '' }}"><small>R$</small>{{ "%.2f"|format(saldo_contabil)|replace(",", "@")|replace(".", ",")|replace("@", ".") }}</span><span class="note">Soma líquida de {{ total_contabil }} lançamentos</span></div>
+      <div class="kpi alert"><span class="label">Diferença líquida</span><span class="value neg"><small>R$</small>{{ "%.2f"|format(diferenca_liquida)|replace(",", "@")|replace(".", ",")|replace("@", ".") }}</span><span class="note">Contábil − extrato · ver ponte na seção 5</span></div>
+    </div>
+    {% if meta_cobertura %}
+    <p class="lede" style="margin-top:10px">Meta de cobertura de referência informada: {{ meta_cobertura }}.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section id="composicao">
+  <div class="keep">
+    <h2>3. Composição da conciliação</h2>
+    <p class="lede">Distribuição das {{ total_extrato }} transações do extrato por resultado da análise.</p>
+    <div class="stack" role="img" aria-label="{{ total_exatos }} exatas, {{ total_similaridade }} por similaridade, {{ total_extrato_aberto }} sem correspondência">
+      <span class="s1" style="width:{{ cobertura_efetiva }}%">{{ total_exatos }} exatas</span>
+      <span class="s2" style="width:{{ "%.4f"|format((total_similaridade / total_extrato * 100) if total_extrato else 0) }}%">{{ total_similaridade }}</span>
+      <span class="s3" style="width:{{ "%.4f"|format((total_extrato_aberto / total_extrato * 100) if total_extrato else 0) }}%">{{ total_extrato_aberto }} sem par</span>
+    </div>
+    <div class="legend"><span><i style="background:var(--navy2)"></i>Exatas: {{ ("%.1f"|format(cobertura_efetiva))|replace(".", ",") }}%</span><span><i style="background:#6f8fb5"></i>Por similaridade: {{ ("%.1f"|format((total_similaridade / total_extrato * 100) if total_extrato else 0))|replace(".", ",") }}%</span><span><i style="background:#cfd6e0"></i>Sem correspondência: {{ ("%.1f"|format((total_extrato_aberto / total_extrato * 100) if total_extrato else 0))|replace(".", ",") }}%</span></div>
+    <table style="margin-top:12px">
+      <thead><tr><th>Camada de análise</th><th>Critério</th><th class="num">Ocorrências</th></tr></thead>
+      <tbody>
+        <tr><td>Exata</td><td>Valores e datas idênticos</td><td class="num">{{ total_exatos }}</td></tr>
+        <tr><td>Similaridade (heurística)</td><td>Valores e datas próximos, textos similares</td><td class="num">{{ total_similaridade }}</td></tr>
+      </tbody>
+      <tfoot><tr><td colspan="2">Total de correspondências</td><td class="num">{{ total_matches }}</td></tr></tfoot>
+    </table>
+  </div>
+</section>
+
+<section id="correspondencias">
+  <div class="keep">
+    <h2>4. Correspondências identificadas</h2>
+    <h3>Casamentos exatos ({{ total_exatos }})</h3>
+    {% if matches_exatos_linhas %}
+    <table>
+      <thead><tr><th>Data</th><th>Descrição</th><th class="num">Extrato (R$)</th><th class="num">Contábil (R$)</th><th class="num">Confiança</th></tr></thead>
+      <tbody>
+        {% for linha in matches_exatos_linhas %}
+        <tr><td>{{ linha.data }}</td><td style="white-space:normal">{{ linha.descricao }}</td><td class="num {{ 'neg' if linha.valor_extrato < 0 else '' }}">{{ linha.valor_extrato_fmt }}</td><td class="num {{ 'neg' if linha.valor_contabil < 0 else '' }}">{{ linha.valor_contabil_fmt }}</td><td class="num">{{ linha.confianca|round|int }}%</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><td colspan="2">Subtotal</td><td class="num">{{ subtotal_exato_extrato_fmt }}</td><td class="num">{{ subtotal_exato_contabil_fmt }}</td><td></td></tr></tfoot>
+    </table>
+    {% else %}
+    <p class="muted">Nenhum casamento exato nesta análise.</p>
+    {% endif %}
+  </div>
+  <div class="keep">
+    <h3>Casamentos por similaridade ({{ total_similaridade }}): exigem conferência</h3>
+    {% if matches_similaridade_linhas %}
+    <table class="t3">
+      <thead><tr><th>Descrição</th><th>Datas (extrato / contábil)</th><th class="num">Extrato (R$)</th><th class="num">Contábil (R$)</th><th>Diferença</th><th class="num">Conf.</th></tr></thead>
+      <tbody>
+        {% for linha in matches_similaridade_linhas %}
+        <tr>
+          <td style="white-space:normal">{{ linha.descricao }}</td>
+          <td>{{ linha.data_extrato }} / {{ linha.data_contabil }}</td>
+          <td class="num {{ 'neg' if linha.valor_extrato < 0 else '' }}">{{ linha.valor_extrato_fmt }}</td>
+          <td class="num {{ 'neg' if linha.valor_contabil < 0 else '' }}">{{ linha.valor_contabil_fmt }}</td>
+          <td><span class="tag {{ 'c' if linha.diferenca > 0 else ('w' if linha.diferenca < 0 else '') }}">{{ linha.rotulo_diferenca }}</span></td>
+          <td class="num">{{ linha.confianca|round|int }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Nenhum casamento por similaridade nesta análise.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section id="divergencias">
+  <div class="keep">
+    <h2>5. Divergências e ponte de reconciliação</h2>
+    <p class="lede">{{ total_aberto }} item(ns) ficaram sem correspondência: {{ total_extrato_aberto }} no extrato e {{ total_contabil_aberto }} no contábil.</p>
+    <div class="split" style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+      <div>
+        <h3 style="margin-top:6px">Extrato sem lançamento ({{ total_extrato_aberto }})</h3>
+        {% if extrato_aberto_linhas %}
+        <table class="t5"><thead><tr><th>Data</th><th>Descrição</th><th class="num">Valor (R$)</th></tr></thead><tbody>
+          {% for linha in extrato_aberto_linhas %}
+          <tr><td>{{ linha.data }}</td><td style="white-space:normal">{{ linha.descricao }}</td><td class="num {{ 'neg' if linha.valor < 0 else 'pos' }}">{{ linha.valor_fmt }}</td></tr>
+          {% endfor %}
+        </tbody><tfoot><tr><td colspan="2">Líquido</td><td class="num">{{ ponte.liquido_extrato_aberto_fmt }}</td></tr></tfoot></table>
+        {% else %}
+        <p class="muted">Nenhum item.</p>
+        {% endif %}
+      </div>
+      <div>
+        <h3 style="margin-top:6px">Lançamentos sem extrato ({{ total_contabil_aberto }})</h3>
+        {% if contabil_aberto_linhas %}
+        <table class="t5"><thead><tr><th>Data</th><th>Descrição</th><th class="num">Valor (R$)</th></tr></thead><tbody>
+          {% for linha in contabil_aberto_linhas %}
+          <tr><td>{{ linha.data }}</td><td style="white-space:normal">{{ linha.descricao }}</td><td class="num {{ 'neg' if linha.valor < 0 else 'pos' }}">{{ linha.valor_fmt }}</td></tr>
+          {% endfor %}
+        </tbody><tfoot><tr><td colspan="2">Líquido</td><td class="num">{{ ponte.liquido_contabil_aberto_fmt }}</td></tr></tfoot></table>
+        {% else %}
+        <p class="muted">Nenhum item.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="keep">
+    <h3>Ponte entre os saldos <span class="muted" style="font-weight:400">· decomposição determinística, sem pareamento</span></h3>
+    <p class="muted">saldo contábil − saldo do extrato = líquido em aberto (contábil) − líquido em aberto (extrato) + soma das diferenças de valor dos matches por similaridade.</p>
+    <div class="bridge">
+      <div class="brow"><div>Líquido dos lançamentos em aberto (contábil)</div><div class="num">{{ ponte.liquido_contabil_aberto_fmt }}</div></div>
+      <div class="brow"><div>Líquido das transações em aberto (extrato)</div><div class="num">{{ ponte.liquido_extrato_aberto_fmt }}</div></div>
+      <div class="brow"><div>Soma das diferenças de valor dos matches por similaridade</div><div class="num">{{ ponte.soma_diferencas_similaridade_fmt }}</div></div>
+      <div class="brow total"><div>Diferença líquida calculada pela ponte</div><div class="num">{{ ponte.valor_calculado_fmt }}</div></div>
+      <div class="brow"><div>Diferença líquida real (saldo contábil − saldo extrato)</div><div class="num">{{ ponte.alvo_fmt }}</div></div>
+      <div class="brow {{ 'residuo' if not ponte.fecha else '' }}"><div>Resíduo (diferença real − ponte calculada)<small>{{ "Ponte fecha sem resíduo." if ponte.fecha else "A ponte NÃO fechou — investigar antes de arquivar." }}</small></div><div class="num">{{ ponte.residuo_fmt }}</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="alertas">
+  <h2>6. Alertas e pontos de atenção</h2>
+  {% if alertas %}
+    {% for alerta in alertas %}
+    <div class="callout {{ 'crit' if alerta.severidade == 'critico' else ('warn' if alerta.severidade == 'atencao' else 'info') }}"><strong>{{ alerta.titulo }}</strong>{{ alerta.texto }}</div>
+    {% endfor %}
+  {% else %}
+    <div class="callout info"><strong>Nenhum alerta</strong>Nenhuma condição de alerta configurada foi identificada nesta análise.</div>
+  {% endif %}
+</section>
+
+<section id="recomendacoes">
+  <div>
+    <h2>7. Recomendações</h2>
+    <p class="lede">Ordenadas por prioridade, com impacto financeiro quando aplicável.</p>
+    {% if recomendacoes %}
+    <div class="recs">
+      {% for rec in recomendacoes %}
+      <div class="rec"><span class="prio {{ rec.prioridade }}">Prioridade {{ rec.prioridade }}</span><div><h4>{{ rec.titulo }}</h4><p>{{ rec.texto }}</p></div><span class="impact">{{ rec.impacto }}</span></div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">Nenhuma recomendação adicional gerada pelas regras configuradas.</p>
+    {% endif %}
+  </div>
+  <div class="keep">
+    <h3>Checklist para o responsável</h3>
+    <ul class="checklist">
+      {% for item in checklist %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+<section id="auditoria" class="pb">
+  <div class="keep">
+    <h2>8. Informações para auditoria</h2>
+    <p class="lede">Dados de rastreabilidade e campos de validação do responsável.</p>
+    <table><tbody>
+      <tr><td style="width:38%">Conta analisada</td><td>{{ conta_analisada }}</td></tr>
+      <tr><td>Empresa</td><td>{{ empresa_nome }}</td></tr>
+      <tr><td>Classificação do documento</td><td>{{ classificacao_documento }}</td></tr>
+      <tr><td>Período</td><td>{{ periodo }}</td></tr>
+      <tr><td>Analista</td><td>{{ analista_nome }}</td></tr>
+      <tr><td>Data de geração</td><td>{{ data_emissao_str }}</td></tr>
+      <tr><td>Total de transações bancárias</td><td>{{ total_extrato }}</td></tr>
+      <tr><td>Total de lançamentos contábeis</td><td>{{ total_contabil }}</td></tr>
+      <tr><td>Correspondências identificadas</td><td>{{ total_matches }}</td></tr>
+      <tr><td>Divergências</td><td>{{ total_aberto }}</td></tr>
+    </tbody></table>
+  </div>
+  <div class="back-grid keep" style="margin-top:22px">
+    <div><h3>Metodologia</h3><ul>
+      <li>Exatas: valores e datas idênticos.</li>
+      <li>Similaridade: valores e datas próximos, com textos similares.</li>
+      <li>Narrativa (síntese, alertas, recomendações): gerada por regras determinísticas no código, sem uso de IA/LLM nesta fase.</li></ul></div>
+    <div><h3>Observações importantes</h3><ul>
+      <li>Este relatório é uma ferramenta de auxílio.</li>
+      <li>Todas as correspondências devem ser validadas manualmente.</li>
+      <li>A responsabilidade final pela conciliação é do responsável indicado.</li>
+      <li>Mantenha documentação adequada para auditoria.</li></ul></div>
+  </div>
+  <div class="keep">
+    <p class="muted" style="margin-top:22px">Este relatório foi gerado automaticamente pelo Sistema de Conciliação Bancária e deve ser arquivado junto com a documentação contábil do período.</p>
+    <div class="sign"><div>Responsável</div><div>Data da validação</div></div>
+  </div>
+</section>
+
+<section class="backcover" id="contracapa">
+  <div class="cover-top"><div><strong>{{ empresa_nome }}</strong>Relatório de conciliação bancária</div><div style="text-align:right"><strong>{{ classificacao_documento }}</strong>Uso restrito</div></div>
+  <div class="cover-main"><p class="kind">Relatório executivo</p><h1>Conciliação Bancária</h1><p class="sub">Análise de correspondências entre o extrato bancário e os lançamentos contábeis da conta {{ conta_analisada }}.</p></div>
+  <div>
+    <dl class="cover-meta">
+      <div><dt>Conta analisada</dt><dd>{{ conta_analisada }}</dd></div><div><dt>Período</dt><dd>{{ periodo }}</dd></div><div><dt>Data de emissão</dt><dd>{{ data_emissao_str }}</dd></div><div><dt>Formato</dt><dd>Executivo</dd></div>
+      <div><dt>Empresa</dt><dd>{{ empresa_nome }}</dd></div><div><dt>Analista</dt><dd>{{ analista_nome }}</dd></div><div><dt>Situação</dt><dd>Aguarda validação</dd></div><div><dt>Fonte</dt><dd>Sistema de conciliação</dd></div>
+      <div><dt>Cobertura</dt><dd>{{ ("%.1f"|format(cobertura_sistema))|replace(".", ",") }}% ({{ total_matches }} de {{ total_extrato }})</dd></div><div><dt>Divergências</dt><dd>{{ total_aberto }} item(ns)</dd></div><div><dt>Saldo do extrato</dt><dd>{{ saldo_extrato_fmt }}</dd></div><div><dt>Diferença líquida</dt><dd>{{ diferenca_liquida_fmt }}</dd></div>
+    </dl>
+    <div class="cover-foot"><span>Gerado automaticamente e sujeito à validação manual do responsável.</span><span><strong style="color:var(--navy)">Fim do relatório</strong></span></div>
+  </div>
+</section>
+</body>
+</html>
