@@ -7,6 +7,7 @@ import tempfile
 import os
 import base64
 import modules.report_generator as report_gen
+import modules.report_executivo as report_executivo
 import locale
 from difflib import SequenceMatcher
 from modules.auth_middleware import require_auth, get_current_user
@@ -261,7 +262,12 @@ def main():
     st.sidebar.header("⚙️ Configurações do Relatório")
 
     empresa_nome = st.sidebar.text_input("Nome da Empresa", "")
-    contador_nome = st.sidebar.text_input("Nome do Contador", "")
+    contador_nome = st.sidebar.text_input("Nome do Contador (Analista)", "")
+    classificacao_documento = st.sidebar.text_input("Classificação do documento", "Documento interno")
+    meta_cobertura_input = st.sidebar.text_input(
+        "Meta de cobertura (opcional, referência interna)", "",
+        help="Só aparece no relatório Executivo se preenchida. Deixe em branco para não exibir nenhuma meta.",
+    )
     periodo_relatorio = st.sidebar.text_input("Período da Análise",
                                             calcular_periodo_real(extrato_filtrado, contabil_filtrado))
 
@@ -514,8 +520,12 @@ def main():
         
         formato_relatorio = st.selectbox(
             "Formato do Relatório",
-            ["Completo", "Resumido"],
-            help="Completo: Inclui todos os detalhes e tabelas completas | Resumido: Apenas sumário executivo e estatísticas principais"
+            ["Executivo", "Completo"],
+            help=(
+                "Executivo (padrão): relatório em PDF com síntese, indicadores, ponte de "
+                "reconciliação, alertas e recomendações por regras determinísticas. "
+                "Completo: formato legado, com tabelas detalhadas célula a célula."
+            ),
         )
 
     with col_gerar2:
@@ -542,18 +552,36 @@ def main():
                     lote_auditoria = f"{conta_analisada} | {periodo_relatorio}"
 
                     # PASSAR A CONTA PARA A FUNÇÃO DE GERAR RELATÓRIO
-                    pdf_path = report_gen.gerar_relatorio_analise(
-                        resultados_analise=resultados_analise,
-                        extrato_df=extrato_filtrado,
-                        contabil_df=contabil_filtrado,
-                        empresa_nome=empresa_nome,
-                        contador_nome=contador_nome,
-                        periodo=periodo_relatorio,
-                        observacoes=observacoes,
-                        formato=formato_relatorio.lower(),
-                        divergencias_tabela=divergencias_tabela,
-                        conta_analisada=conta_analisada  # ✅ NOVO PARÂMETRO
-                    )
+                    if formato_relatorio == "Executivo":
+                        # Novo relatório (fase 3, XCRE-43): template HTML +
+                        # WeasyPrint, narrativa por regras determinísticas.
+                        pdf_path = report_executivo.gerar_relatorio_executivo(
+                            resultados_analise=resultados_analise,
+                            extrato_df=extrato_filtrado,
+                            contabil_df=contabil_filtrado,
+                            empresa_nome=empresa_nome,
+                            analista_nome=contador_nome,
+                            classificacao_documento=classificacao_documento,
+                            periodo=periodo_relatorio,
+                            observacoes=observacoes,
+                            conta_analisada=conta_analisada,
+                            meta_cobertura=meta_cobertura_input,
+                        )
+                    else:
+                        # Formato legado ("Completo"): mantido para
+                        # compatibilidade (modules/report_generator.py, FPDF).
+                        pdf_path = report_gen.gerar_relatorio_analise(
+                            resultados_analise=resultados_analise,
+                            extrato_df=extrato_filtrado,
+                            contabil_df=contabil_filtrado,
+                            empresa_nome=empresa_nome,
+                            contador_nome=contador_nome,
+                            periodo=periodo_relatorio,
+                            observacoes=observacoes,
+                            formato=formato_relatorio.lower(),
+                            divergencias_tabela=divergencias_tabela,
+                            conta_analisada=conta_analisada
+                        )
 
                     # Verificar se o pdf_path é válido
                     if pdf_path is None:
