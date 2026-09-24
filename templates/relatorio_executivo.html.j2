@@ -110,8 +110,8 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
     <li><a href="#sintese"><b>1</b><span>Síntese executiva</span><em>Principais conclusões</em></a></li>
     <li><a href="#kpis"><b>2</b><span>Indicadores-chave</span><em>Cobertura, saldos e divergências</em></a></li>
     <li><a href="#composicao"><b>3</b><span>Composição da conciliação</span><em>Resultado por camada de análise</em></a></li>
-    <li><a href="#correspondencias"><b>4</b><span>Correspondências identificadas</span><em>{{ total_matches }} casamento(s) detalhados</em></a></li>
-    <li><a href="#divergencias"><b>5</b><span>Divergências e ponte de reconciliação</span><em>{{ total_aberto }} item(ns) em aberto</em></a></li>
+    <li><a href="#correspondencias"><b>4</b><span>Correspondências identificadas</span><em>{{ total_matches }} {{ pluralizar(total_matches, 'casamento detalhado', 'casamentos detalhados') }}</em></a></li>
+    <li><a href="#divergencias"><b>5</b><span>Divergências e ponte de reconciliação</span><em>{{ total_aberto }} {{ pluralizar(total_aberto, 'item em aberto', 'itens em aberto') }}</em></a></li>
     <li><a href="#alertas"><b>6</b><span>Alertas e pontos de atenção</span><em>Riscos e inconsistências</em></a></li>
     <li><a href="#recomendacoes"><b>7</b><span>Recomendações</span><em>Ações por prioridade</em></a></li>
     <li><a href="#auditoria"><b>8</b><span>Informações para auditoria</span><em>Metodologia e assinatura</em></a></li>
@@ -139,7 +139,7 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
     <p class="lede">Valores em reais (R$). Saldo é a soma líquida das movimentações, com saídas negativas.</p>
     <div class="kpis">
       <div class="kpi"><span class="label">Cobertura do sistema</span><span class="value">{{ ("%.1f"|format(cobertura_sistema))|replace(".", ",") }}<small>%</small></span><span class="delta pos">{{ total_matches }} de {{ total_extrato }} transações</span><span class="note">Inclui exatas e por similaridade</span></div>
-      <div class="kpi"><span class="label">Cobertura efetiva (só exatas)</span><span class="value">{{ ("%.1f"|format(cobertura_efetiva))|replace(".", ",") }}<small>%</small></span><span class="delta pos">{{ total_exatos }} correspondência(s) exata(s)</span><span class="note">Valor e data idênticos</span></div>
+      <div class="kpi"><span class="label">Cobertura efetiva (só exatas)</span><span class="value">{{ ("%.1f"|format(cobertura_efetiva))|replace(".", ",") }}<small>%</small></span><span class="delta pos">{{ total_exatos }} {{ pluralizar(total_exatos, 'correspondência exata', 'correspondências exatas') }}</span><span class="note">Valor e data idênticos</span></div>
       <div class="kpi"><span class="label">Por similaridade</span><span class="value">{{ total_similaridade }}</span><span class="delta" style="color:var(--warnink)">Exigem conferência</span><span class="note">Valor ou data diferem</span></div>
       <div class="kpi alert"><span class="label">Divergências (itens em aberto)</span><span class="value">{{ total_aberto }}</span><span class="delta neg">{{ total_extrato_aberto }} no extrato + {{ total_contabil_aberto }} no contábil</span><span class="note">Sem correspondência automática</span></div>
       <div class="kpi"><span class="label">Saldo do extrato</span><span class="value {{ 'neg' if saldo_extrato < 0 else '' }}"><small>R$</small>{{ "%.2f"|format(saldo_extrato)|replace(",", "@")|replace(".", ",")|replace("@", ".") }}</span><span class="note">Soma líquida de {{ total_extrato }} transações</span></div>
@@ -218,7 +218,7 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
 <section id="divergencias">
   <div class="keep">
     <h2>5. Divergências e ponte de reconciliação</h2>
-    <p class="lede">{{ total_aberto }} item(ns) ficaram sem correspondência: {{ total_extrato_aberto }} no extrato e {{ total_contabil_aberto }} no contábil.</p>
+    <p class="lede">{{ total_aberto }} {{ pluralizar(total_aberto, 'item ficou', 'itens ficaram') }} sem correspondência: {{ total_extrato_aberto }} no extrato e {{ total_contabil_aberto }} no contábil.</p>
     <div class="split" style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
       <div>
         <h3 style="margin-top:6px">Extrato sem lançamento ({{ total_extrato_aberto }})</h3>
@@ -336,7 +336,7 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
     <dl class="cover-meta">
       <div><dt>Conta analisada</dt><dd>{{ conta_analisada }}</dd></div><div><dt>Período</dt><dd>{{ periodo }}</dd></div><div><dt>Data de emissão</dt><dd>{{ data_emissao_str }}</dd></div><div><dt>Formato</dt><dd>Executivo</dd></div>
       <div><dt>Empresa</dt><dd>{{ empresa_nome }}</dd></div><div><dt>Analista</dt><dd>{{ analista_nome }}</dd></div><div><dt>Situação</dt><dd>Aguarda validação</dd></div><div><dt>Fonte</dt><dd>Sistema de conciliação</dd></div>
-      <div><dt>Cobertura</dt><dd>{{ ("%.1f"|format(cobertura_sistema))|replace(".", ",") }}% ({{ total_matches }} de {{ total_extrato }})</dd></div><div><dt>Divergências</dt><dd>{{ total_aberto }} item(ns)</dd></div><div><dt>Saldo do extrato</dt><dd>{{ saldo_extrato_fmt }}</dd></div><div><dt>Diferença líquida</dt><dd>{{ diferenca_liquida_fmt }}</dd></div>
+      <div><dt>Cobertura</dt><dd>{{ ("%.1f"|format(cobertura_sistema))|replace(".", ",") }}% ({{ total_matches }} de {{ total_extrato }})</dd></div><div><dt>Divergências</dt><dd>{{ total_aberto }} {{ pluralizar(total_aberto, 'item', 'itens') }}</dd></div><div><dt>Saldo do extrato</dt><dd>{{ saldo_extrato_fmt }}</dd></div><div><dt>Diferença líquida</dt><dd>{{ diferenca_liquida_fmt }}</dd></div>
     </dl>
     <div class="cover-foot"><span>Gerado automaticamente e sujeito à validação manual do responsável.</span><span><strong style="color:var(--navy)">Fim do relatório</strong></span></div>
   </div>

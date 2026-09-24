@@ -92,6 +92,24 @@ def _normalizar_descricao(descricao) -> str:
     return re.sub(r"\s+", " ", str(descricao or "")).strip().lower()
 
 
+def pluralizar(quantidade: int, singular: str, plural: Optional[str] = None) -> str:
+    """Helper único de pluralização (issue XCRE-44, item A3), usado no
+    módulo e no template: 1 casamento / N casamentos; 1 item / N itens.
+    `plural` é obrigatório para formas irregulares (ex.: item -> itens);
+    quando omitido, usa a forma regular (singular + 's')."""
+    if quantidade == 1:
+        return singular
+    return plural if plural is not None else f"{singular}s"
+
+
+def _fmt_contagem(quantidade: int, singular: str, plural: Optional[str] = None) -> str:
+    """'{quantidade} {palavra no plural correto}', ex.: '1 item' / '8 itens'."""
+    return f"{quantidade} {pluralizar(quantidade, singular, plural)}"
+
+
+_env.globals["pluralizar"] = pluralizar
+
+
 def _linha_match_exato(match: Dict, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame) -> Dict:
     ext = extrato_df[extrato_df["id"].isin(match.get("ids_extrato", []))]
     cont = contabil_df[contabil_df["id"].isin(match.get("ids_contabil", []))]
@@ -266,7 +284,8 @@ def _calcular_alertas(
             "severidade": "atencao",
             "titulo": "Campos de governança em branco",
             "texto": (
-                f"Campo(s) não informado(s): {', '.join(faltando)}. Neste estado, o documento não está apto "
+                f"{pluralizar(len(faltando), 'Campo não informado', 'Campos não informados')}: "
+                f"{', '.join(faltando)}. Neste estado, o documento não está apto "
                 "para arquivo de auditoria sem revisão."
             ),
         })
@@ -359,9 +378,10 @@ def _calcular_recomendacoes(
                 "prioridade": "media",
                 "titulo": "Corrigir valores dos lançamentos por similaridade",
                 "texto": (
-                    "Ajustar os "
-                    f"{len(matches_similaridade_linhas)} lançamento(s) casados por similaridade cuja diferença "
-                    "de valor está detalhada na seção 4, se confirmados com os comprovantes."
+                    "Ajustar "
+                    f"{_fmt_contagem(len(matches_similaridade_linhas), 'o lançamento casado', 'os lançamentos casados')} "
+                    "por similaridade cuja diferença de valor está detalhada na seção 4, se confirmados com os "
+                    "comprovantes."
                 ),
                 "impacto": _fmt_valor(soma_diffs),
             })
@@ -372,7 +392,8 @@ def _calcular_recomendacoes(
                 "prioridade": "baixa",
                 "titulo": "Padronizar datas dos casamentos por similaridade sem diferença de valor",
                 "texto": (
-                    f"{len(apenas_data)} par(es) têm apenas defasagem de data, sem efeito no valor. "
+                    f"{_fmt_contagem(len(apenas_data), 'par', 'pares')} "
+                    f"{pluralizar(len(apenas_data), 'tem', 'têm')} apenas defasagem de data, sem efeito no valor. "
                     "Padronizar a data do extrato no lançamento melhora o casamento automático futuro."
                 ),
                 "impacto": "Sem efeito financeiro",
@@ -466,10 +487,13 @@ def montar_contexto_executivo(
         contabil_aberto=contabil_aberto,
     )
 
+    total_aberto_headline = len(extrato_aberto) + len(contabil_aberto)
     headline = (
-        f"O sistema casou {len(matches)} das {total_extrato} transações, mas só {len(matches_exatos)} "
-        f"casamento(s) são exatos. {len(matches_similaridade)} diferem em valor ou data, e "
-        f"{len(extrato_aberto) + len(contabil_aberto)} item(ns) seguem sem par."
+        f"O sistema casou {len(matches)} das {total_extrato} transações, mas só "
+        f"{_fmt_contagem(len(matches_exatos), 'casamento', 'casamentos')} "
+        f"{pluralizar(len(matches_exatos), 'é exato', 'são exatos')}. {len(matches_similaridade)} diferem em "
+        f"valor ou data, e {_fmt_contagem(total_aberto_headline, 'item', 'itens')} "
+        f"{pluralizar(total_aberto_headline, 'segue sem par', 'seguem sem par')}."
     )
     takeaways = [
         {
@@ -480,13 +504,17 @@ def montar_contexto_executivo(
         {
             "titulo": f"A cobertura efetiva é de {_fmt_pct(cobertura_efetiva)}%",
             "texto": (
-                f"Apenas {len(matches_exatos)} casamento(s) coincidem em valor e data. Os demais "
+                f"Apenas {_fmt_contagem(len(matches_exatos), 'casamento', 'casamentos')} "
+                f"{pluralizar(len(matches_exatos), 'coincide', 'coincidem')} em valor e data. Os demais "
                 f"{len(matches_similaridade)} foram aceitos por similaridade."
             ),
             "classe": "watch",
         },
         {
-            "titulo": f"{len(extrato_aberto) + len(contabil_aberto)} item(ns) seguem sem correspondência",
+            "titulo": (
+                f"{_fmt_contagem(total_aberto_headline, 'item', 'itens')} "
+                f"{pluralizar(total_aberto_headline, 'segue', 'seguem')} sem correspondência"
+            ),
             "texto": (
                 f"{len(extrato_aberto)} no extrato e {len(contabil_aberto)} no contábil — ver seção 5 "
                 "para a ponte de reconciliação."
