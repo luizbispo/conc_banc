@@ -196,7 +196,26 @@ def check_login_rate_limit(identifier: str) -> tuple[bool, int]:
 
     A limitação é aplicada pelo identificador digitado (username/email),
     independente de o usuário existir de fato, para não criar um oráculo
-    de enumeração de contas via presença/ausência de bloqueio."""
+    de enumeração de contas via presença/ausência de bloqueio.
+
+    Limitação conhecida e documentada (issue XCRE-42, item 5b): a
+    limitação é SÓ por identificador, não também por origem da
+    requisição (ex.: IP). Isso foi avaliado e descartado deliberadamente,
+    não esquecido: o Streamlit não expõe, na API pública/estável de
+    st.* usada por este app, o IP real do cliente de forma confiável —
+    em produção, o processo normalmente fica atrás de um proxy reverso,
+    e cabeçalhos como X-Forwarded-For são definidos pelo CLIENTE na
+    requisição, então um atacante pode simplesmente enviar um valor
+    diferente a cada tentativa e contornar qualquer limite baseado
+    nisso sem confirmação do proxy confiável. Adicionar uma limitação
+    "por IP" a partir de um sinal que o próprio atacante controla criaria
+    uma falsa sensação de proteção, não uma proteção real. Se um sinal de
+    origem confiável vier a existir (ex.: cabeçalho injetado
+    exclusivamente pelo proxy confiável do ambiente de produção, nunca
+    repassado de fora), a limitação por origem pode ser adicionada aqui
+    como camada extra — sem substituir a limitação por identificador,
+    que continua sendo a defesa primária contra força bruta numa conta
+    específica."""
     identifier = _normalize_identifier(identifier)
     conn = get_db_connection()
     c = conn.cursor()
