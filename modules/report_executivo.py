@@ -26,6 +26,7 @@ import pandas as pd
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML, URLFetcher
 
+from modules.data_analyzer import identificar_pares_provaveis_similaridade
 from modules.report_generator import formatar_valor_brl
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -35,9 +36,16 @@ FONTS_DIR = os.path.join(BASE_DIR, "assets", "fonts")
 # --- Limiares de alertas e recomendações (documentados; único lugar a
 # ajustar caso o usuário valide outros valores) ---
 ALERTA_PERIODO_TOLERANCIA_DIAS = 7
+# Revisado na issue XCRE-44 (item A2c): antes se aplicava ao maior item
+# BRUTO em aberto isoladamente; agora se aplica à exposição já agrupada
+# por natureza (recebimentos/pagamentos) calculada por
+# _calcular_exposicao_agrupada — um patamar de materialidade sobre um
+# número mais preciso, já que pares identificados na ponte detalhada não
+# representam mais o valor bruto das duas pontas, só a diferença real
+# entre elas. R$500,00 permanece um patamar razoável nesta fase; não há
+# indicação de que precise mudar de valor, só de base de cálculo.
 ALERTA_DIVERGENCIA_VALOR_MINIMA = 500.00
 ALERTA_RECORRENCIA_MINIMA = 2
-RECOMENDACAO_IMPACTO_ALTA = 500.00
 RECOMENDACAO_IMPACTO_MEDIA = 10.00
 RESIDUO_TOLERANCIA = 0.01
 
@@ -92,6 +100,24 @@ def _normalizar_descricao(descricao) -> str:
     return re.sub(r"\s+", " ", str(descricao or "")).strip().lower()
 
 
+def pluralizar(quantidade: int, singular: str, plural: Optional[str] = None) -> str:
+    """Helper único de pluralização (issue XCRE-44, item A3), usado no
+    módulo e no template: 1 casamento / N casamentos; 1 item / N itens.
+    `plural` é obrigatório para formas irregulares (ex.: item -> itens);
+    quando omitido, usa a forma regular (singular + 's')."""
+    if quantidade == 1:
+        return singular
+    return plural if plural is not None else f"{singular}s"
+
+
+def _fmt_contagem(quantidade: int, singular: str, plural: Optional[str] = None) -> str:
+    """'{quantidade} {palavra no plural correto}', ex.: '1 item' / '8 itens'."""
+    return f"{quantidade} {pluralizar(quantidade, singular, plural)}"
+
+
+_env.globals["pluralizar"] = pluralizar
+
+
 def _linha_match_exato(match: Dict, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame) -> Dict:
     ext = extrato_df[extrato_df["id"].isin(match.get("ids_extrato", []))]
     cont = contabil_df[contabil_df["id"].isin(match.get("ids_contabil", []))]
@@ -114,6 +140,24 @@ def _linha_match_exato(match: Dict, extrato_df: pd.DataFrame, contabil_df: pd.Da
     }
 
 
+def _rotulo_diferenca_por_magnitude(valor_contabil: float, valor_extrato: float) -> "tuple[str, float]":
+    """Rótulo de diferença de valor por MAGNITUDE (issue XCRE-44, item A1):
+    compara |contábil| com |extrato|, não o sinal algébrico
+    (contábil - extrato). Um débito maior no contábil (ex.: -43,30 contra
+    -40,30 no extrato) é "a mais no contábil", nunca "a menos" — o sinal
+    algébrico sozinho inverte esse resultado para despesas. Vale para
+    débitos e créditos. A diferença de DATA é sempre mostrada à parte,
+    nunca misturada a este rótulo."""
+    diferenca_magnitude = round(abs(valor_contabil) - abs(valor_extrato), 2)
+    if diferenca_magnitude > 0:
+        rotulo = f"{_fmt_valor(diferenca_magnitude)} a mais no contábil"
+    elif diferenca_magnitude < 0:
+        rotulo = f"{_fmt_valor(abs(diferenca_magnitude))} a menos no contábil"
+    else:
+        rotulo = "Sem diferença de valor"
+    return rotulo, diferenca_magnitude
+
+
 def _linha_match_similaridade(match: Dict, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame) -> Dict:
     ext = extrato_df[extrato_df["id"].isin(match.get("ids_extrato", []))]
     cont = contabil_df[contabil_df["id"].isin(match.get("ids_contabil", []))]
@@ -125,12 +169,7 @@ def _linha_match_similaridade(match: Dict, extrato_df: pd.DataFrame, contabil_df
     valor_extrato = float(ext["valor"].sum()) if len(ext) else 0.0
     valor_contabil = float(cont["valor"].sum()) if len(cont) else 0.0
     diferenca = round(valor_contabil - valor_extrato, 2)
-    if diferenca > 0:
-        rotulo_diferenca = f"{_fmt_valor(abs(diferenca))} a mais no contábil"
-    elif diferenca < 0:
-        rotulo_diferenca = f"{_fmt_valor(abs(diferenca))} a menos no contábil"
-    else:
-        rotulo_diferenca = "Sem diferença de valor"
+    rotulo_diferenca, diferenca_magnitude = _rotulo_diferenca_por_magnitude(valor_contabil, valor_extrato)
     return {
         "descricao": descricao,
         "data_extrato": _fmt_data(data_extrato),
@@ -142,6 +181,7 @@ def _linha_match_similaridade(match: Dict, extrato_df: pd.DataFrame, contabil_df
         "diferenca": diferenca,
         "diferenca_fmt": _fmt_valor(diferenca),
         "rotulo_diferenca": rotulo_diferenca,
+        "diferenca_magnitude": diferenca_magnitude,
         "confianca": match.get("confianca", 0),
     }
 
@@ -197,6 +237,221 @@ def calcular_ponte(
     }
 
 
+NATUREZA_RECEBIMENTOS = "recebimentos"
+NATUREZA_PAGAMENTOS = "pagamentos"
+
+
+def _natureza(valor: float) -> str:
+    """Recebimento (crédito, valor >= 0) ou pagamento (débito, valor < 0)."""
+    return NATUREZA_RECEBIMENTOS if valor >= 0 else NATUREZA_PAGAMENTOS
+
+
+def _data_apenas(valor):
+    ts = pd.to_datetime(valor, errors="coerce")
+    return None if pd.isna(ts) else ts.date()
+
+
+def _linha_pares_provaveis(par: Dict) -> Dict:
+    """Formata um par candidato de modules.data_analyzer.identificar_pares_provaveis_similaridade
+    para exibição na seção 5(a) 'Pares prováveis apontados pelo sistema'."""
+    descricao = par["descricao_extrato"] or par["descricao_contabil"]
+    return {
+        "descricao": descricao,
+        "data_extrato": _fmt_data(par["data_extrato"]),
+        "data_contabil": _fmt_data(par["data_contabil"]),
+        "valor_extrato_fmt": _fmt_valor(par["valor_extrato"]),
+        "valor_contabil_fmt": _fmt_valor(par["valor_contabil"]),
+        "diferenca_valor_fmt": _fmt_valor(par["diferenca_valor"]),
+        "diferenca_dias": par["diferenca_dias"],
+        "similaridade": par["similaridade"],
+        "confianca": par["confianca"],
+    }
+
+
+def _linha_ponte_par(par: Dict, origem: str) -> Dict:
+    """Uma linha pareada da ponte DETALHADA (issue XCRE-44, item A2b):
+    reaproveita o mesmo rótulo por magnitude do item A1. `origem` é
+    'sistema' (o par também está entre os 'pares prováveis apontados
+    pelo sistema' da seção 5a) ou 'hipotese' (encontrado só pela regra
+    objetiva — mesma descrição normalizada + mesma data — sem respaldo
+    do sistema; rotulado 'Hipótese do analista')."""
+    valor_extrato = par["valor_extrato"]
+    valor_contabil = par["valor_contabil"]
+    diferenca = round(valor_contabil - valor_extrato, 2)
+    rotulo_diferenca, diferenca_magnitude = _rotulo_diferenca_por_magnitude(valor_contabil, valor_extrato)
+    return {
+        "descricao": par["descricao_extrato"] or par["descricao_contabil"],
+        "data_extrato": _fmt_data(par["data_extrato"]),
+        "data_contabil": _fmt_data(par["data_contabil"]),
+        "valor_extrato": valor_extrato,
+        "valor_contabil": valor_contabil,
+        "valor_extrato_fmt": _fmt_valor(valor_extrato),
+        "valor_contabil_fmt": _fmt_valor(valor_contabil),
+        "diferenca": diferenca,
+        "diferenca_fmt": _fmt_valor(diferenca),
+        "rotulo_diferenca": rotulo_diferenca,
+        "diferenca_magnitude": diferenca_magnitude,
+        "origem": origem,
+        "origem_label": "Hipótese do analista" if origem == "hipotese" else "Par apontado pelo sistema",
+        "natureza": _natureza(valor_contabil),
+    }
+
+
+def _construir_ponte_detalhada(
+    extrato_aberto: pd.DataFrame,
+    contabil_aberto: pd.DataFrame,
+    pares_provaveis: List[Dict],
+) -> "tuple[List[Dict], pd.DataFrame, pd.DataFrame]":
+    """Ponte DETALHADA linha a linha (issue XCRE-44, item A2b), visão
+    ADICIONAL à ponte determinística compacta (que continua como
+    padrão): decompõe os itens em aberto em pares (mesma descrição
+    normalizada + mesma data + valor diferente) + itens que seguem
+    totalmente sem par. Pareamento é EXCLUSIVO — cada id é usado no
+    máximo uma vez — priorizando, em ordem:
+    1) os pares que o sistema já aponta (seção 5a), maior confiança
+       primeiro;
+    2) pares adicionais encontrados só pela regra objetiva entre os
+       itens restantes, rotulados 'hipótese do analista' (não vieram da
+       lista do sistema).
+    """
+    usados_extrato: set = set()
+    usados_contabil: set = set()
+    linhas_pares: List[Dict] = []
+
+    for par in sorted(pares_provaveis, key=lambda p: -p["confianca"]):
+        if par["id_extrato"] in usados_extrato or par["id_contabil"] in usados_contabil:
+            continue
+        usados_extrato.add(par["id_extrato"])
+        usados_contabil.add(par["id_contabil"])
+        linhas_pares.append(_linha_ponte_par(par, origem="sistema"))
+
+    for _, ext in extrato_aberto.iterrows():
+        if ext["id"] in usados_extrato:
+            continue
+        chave_ext = (_normalizar_descricao(ext.get("descricao")), _data_apenas(ext.get("data")))
+        for _, cont in contabil_aberto.iterrows():
+            if cont["id"] in usados_contabil:
+                continue
+            chave_cont = (_normalizar_descricao(cont.get("descricao")), _data_apenas(cont.get("data")))
+            if chave_ext != chave_cont:
+                continue
+            if round(float(ext["valor"]) - float(cont["valor"]), 2) == 0:
+                continue  # mesmo valor: não é uma divergência a explicar na ponte
+            usados_extrato.add(ext["id"])
+            usados_contabil.add(cont["id"])
+            par = {
+                "data_extrato": ext.get("data"), "data_contabil": cont.get("data"),
+                "valor_extrato": float(ext["valor"]), "valor_contabil": float(cont["valor"]),
+                "descricao_extrato": str(ext.get("descricao", "") or ""),
+                "descricao_contabil": str(cont.get("descricao", "") or ""),
+            }
+            linhas_pares.append(_linha_ponte_par(par, origem="hipotese"))
+            break
+
+    nao_pareados_extrato = extrato_aberto[~extrato_aberto["id"].isin(usados_extrato)]
+    nao_pareados_contabil = contabil_aberto[~contabil_aberto["id"].isin(usados_contabil)]
+    return linhas_pares, nao_pareados_extrato, nao_pareados_contabil
+
+
+def _montar_ponte_detalhada(
+    linhas_pares: List[Dict],
+    nao_pareados_extrato: pd.DataFrame,
+    nao_pareados_contabil: pd.DataFrame,
+    liquido_contabil_aberto: float,
+    liquido_extrato_aberto: float,
+) -> Dict[str, Any]:
+    linhas_sem_par = _linhas_abertas(nao_pareados_extrato)
+    for linha in linhas_sem_par:
+        linha["lado"] = "extrato"
+    linhas_sem_par_contabil = _linhas_abertas(nao_pareados_contabil)
+    for linha in linhas_sem_par_contabil:
+        linha["lado"] = "contábil"
+    linhas_sem_par += linhas_sem_par_contabil
+
+    soma_pares = round(sum(l["diferenca"] for l in linhas_pares), 2)
+    soma_sem_par_contabil = round(sum(float(v) for v in nao_pareados_contabil["valor"]), 2) if len(nao_pareados_contabil) else 0.0
+    soma_sem_par_extrato = round(sum(float(v) for v in nao_pareados_extrato["valor"]), 2) if len(nao_pareados_extrato) else 0.0
+    total_detalhado = round(soma_pares + soma_sem_par_contabil - soma_sem_par_extrato, 2)
+    alvo_aberto = round(liquido_contabil_aberto - liquido_extrato_aberto, 2)
+    residuo = round(alvo_aberto - total_detalhado, 2)
+
+    return {
+        "linhas_pares": linhas_pares,
+        "linhas_sem_par": linhas_sem_par,
+        "total_pares": len(linhas_pares),
+        "total_sem_par": len(linhas_sem_par),
+        "soma_pares_fmt": _fmt_valor(soma_pares),
+        "alvo_aberto_fmt": _fmt_valor(alvo_aberto),
+        "total_detalhado_fmt": _fmt_valor(total_detalhado),
+        "residuo": residuo,
+        "residuo_fmt": _fmt_valor(residuo),
+        "fecha": abs(residuo) < RESIDUO_TOLERANCIA,
+    }
+
+
+def _juntar_valores_fmt(valores_fmt: List[str]) -> str:
+    if not valores_fmt:
+        return ""
+    if len(valores_fmt) == 1:
+        return valores_fmt[0]
+    return ", ".join(valores_fmt[:-1]) + " e " + valores_fmt[-1]
+
+
+def _calcular_exposicao_agrupada(
+    linhas_pares: List[Dict],
+    nao_pareados_extrato: pd.DataFrame,
+    nao_pareados_contabil: pd.DataFrame,
+) -> Dict[str, Any]:
+    """Exposição agrupada por natureza (issue XCRE-44, item A2c): soma
+    das |diferenças| dos pares identificados na ponte detalhada + itens
+    em aberto sem par nenhum, separada em recebimentos (créditos) e
+    pagamentos (débitos). Usada por alertas, manchete/takeaways e
+    recomendações em vez do maior item bruto isolado, porque um par já
+    identificado (ex.: 1.400,00 contábil x 1.300,00 extrato) representa
+    uma exposição real de só R$100,00 — não R$1.400,00."""
+    buckets: Dict[str, List[Dict[str, Any]]] = {NATUREZA_RECEBIMENTOS: [], NATUREZA_PAGAMENTOS: []}
+
+    for linha in linhas_pares:
+        valor_diferenca = abs(linha["diferenca"])
+        if valor_diferenca <= 0:
+            continue
+        valor_referencia = (
+            linha["valor_contabil"] if abs(linha["valor_contabil"]) >= abs(linha["valor_extrato"])
+            else linha["valor_extrato"]
+        )
+        buckets[linha["natureza"]].append({
+            "descricao": linha["descricao"],
+            "valor_diferenca": valor_diferenca,
+            "valor_referencia_fmt": _fmt_valor(abs(valor_referencia)),
+            "origem": "par",
+        })
+
+    for df in (nao_pareados_extrato, nao_pareados_contabil):
+        for _, row in df.iterrows():
+            valor = float(row["valor"])
+            if valor == 0:
+                continue
+            buckets[_natureza(valor)].append({
+                "descricao": str(row.get("descricao", "") or ""),
+                "valor_diferenca": abs(valor),
+                "valor_referencia_fmt": _fmt_valor(abs(valor)),
+                "origem": "sem_par",
+            })
+
+    totais = {natureza: round(sum(i["valor_diferenca"] for i in itens), 2) for natureza, itens in buckets.items()}
+    natureza_principal = max(totais, key=lambda n: totais[n]) if any(totais.values()) else None
+    total_principal = totais.get(natureza_principal, 0.0) if natureza_principal else 0.0
+
+    return {
+        "buckets": buckets,
+        "totais": totais,
+        "totais_fmt": {natureza: _fmt_valor(valor) for natureza, valor in totais.items()},
+        "natureza_principal": natureza_principal,
+        "total_principal": total_principal,
+        "total_principal_fmt": _fmt_valor(total_principal),
+    }
+
+
 def _calcular_alertas(
     *,
     extrato_df: pd.DataFrame,
@@ -207,6 +462,7 @@ def _calcular_alertas(
     analista_nome: str,
     extrato_aberto: pd.DataFrame,
     contabil_aberto: pd.DataFrame,
+    exposicao: Dict[str, Any],
 ) -> List[Dict[str, str]]:
     alertas = []
 
@@ -252,27 +508,33 @@ def _calcular_alertas(
             "severidade": "atencao",
             "titulo": "Campos de governança em branco",
             "texto": (
-                f"Campo(s) não informado(s): {', '.join(faltando)}. Neste estado, o documento não está apto "
+                f"{pluralizar(len(faltando), 'Campo não informado', 'Campos não informados')}: "
+                f"{', '.join(faltando)}. Neste estado, o documento não está apto "
                 "para arquivo de auditoria sem revisão."
             ),
         })
 
-    # 4. Maior divergência de valor em aberto acima do limiar monetário.
-    candidatos = []
-    for linha in _linhas_abertas(extrato_aberto):
-        candidatos.append((abs(linha["valor"]), linha["valor"], linha["descricao"], "extrato"))
-    for linha in _linhas_abertas(contabil_aberto):
-        candidatos.append((abs(linha["valor"]), linha["valor"], linha["descricao"], "contábil"))
-    if candidatos:
-        candidatos.sort(key=lambda item: item[0], reverse=True)
-        abs_valor, valor, descricao, origem = candidatos[0]
-        if abs_valor >= ALERTA_DIVERGENCIA_VALOR_MINIMA:
+    # 4. Maior exposição agrupada por natureza acima do limiar monetário
+    # (issue XCRE-44, item A2c). Substitui o alerta anterior, que
+    # apontava o maior ITEM BRUTO em aberto isoladamente — um par já
+    # identificado na ponte detalhada (ex.: 1.400,00 contábil x 1.300,00
+    # extrato) tem uma exposição real de só R$100,00, não R$1.400,00;
+    # alertar pelo valor bruto do item superestimava o risco. O limiar
+    # (R$500,00, ALERTA_DIVERGENCIA_VALOR_MINIMA) foi revisado e mantido:
+    # segue sendo um patamar de materialidade razoável, agora aplicado à
+    # exposição JÁ AGRUPADA (mais precisa) em vez de a uma linha bruta.
+    natureza_principal = exposicao.get("natureza_principal")
+    if natureza_principal:
+        total_principal = exposicao["totais"][natureza_principal]
+        if total_principal >= ALERTA_DIVERGENCIA_VALOR_MINIMA:
             alertas.append({
                 "severidade": "critico",
-                "titulo": f"Maior divergência em aberto: {_fmt_valor(valor)} ({origem})",
+                "titulo": f"Maior exposição em aberto: {natureza_principal}, {exposicao['total_principal_fmt']}",
                 "texto": (
-                    f"O item '{descricao}' ({origem}) soma {_fmt_valor(valor)}, acima do limiar de "
-                    f"{_fmt_valor(ALERTA_DIVERGENCIA_VALOR_MINIMA)} configurado para este alerta."
+                    f"A soma das divergências identificadas em {natureza_principal} (pares com diferença de "
+                    f"valor + itens sem par nenhum) é {exposicao['total_principal_fmt']}, acima do limiar de "
+                    f"{_fmt_valor(ALERTA_DIVERGENCIA_VALOR_MINIMA)} configurado para este alerta. Ver seção 5 "
+                    "para o detalhamento linha a linha."
                 ),
             })
 
@@ -305,29 +567,34 @@ def _calcular_recomendacoes(
     matches_similaridade_linhas: List[Dict],
     extrato_aberto: pd.DataFrame,
     contabil_aberto: pd.DataFrame,
+    exposicao: Dict[str, Any],
 ) -> (List[Dict[str, Any]], List[str]):
     recomendacoes = []
     checklist = []
 
-    candidatos = []
-    for linha in _linhas_abertas(extrato_aberto):
-        candidatos.append((abs(linha["valor"]), linha, "extrato"))
-    for linha in _linhas_abertas(contabil_aberto):
-        candidatos.append((abs(linha["valor"]), linha, "contábil"))
-    candidatos.sort(key=lambda item: item[0], reverse=True)
-
-    if candidatos and candidatos[0][0] >= RECOMENDACAO_IMPACTO_ALTA:
-        abs_valor, linha, origem = candidatos[0]
+    # Investigar a maior exposição agrupada por natureza (issue XCRE-44,
+    # item A2c) — substitui a recomendação anterior baseada no maior item
+    # BRUTO isolado. É sempre a recomendação de prioridade mais alta do
+    # relatório (o principal ponto de ação financeira), independente do
+    # valor: mesmo uma exposição pequena em termos absolutos é o maior
+    # risco financeiro remanescente desta conciliação depois que os pares
+    # já identificados na ponte detalhada explicam o resto da divergência.
+    natureza_principal = exposicao.get("natureza_principal")
+    if natureza_principal:
+        itens_principais = exposicao["buckets"][natureza_principal]
+        valores_fmt = _juntar_valores_fmt([item["valor_referencia_fmt"] for item in itens_principais])
+        total_fmt = exposicao["total_principal_fmt"]
         recomendacoes.append({
             "prioridade": "alta",
-            "titulo": f"Investigar a maior divergência em aberto ({origem})",
+            "titulo": f"Investigar os {natureza_principal} de {valores_fmt}",
             "texto": (
-                f"'{linha['descricao']}' soma {linha['valor_fmt']} sem correspondência automática no "
-                f"{origem}. Confirmar comprovantes e lançar o ajuste ou registrar a exceção."
+                f"Soma das divergências identificadas em {natureza_principal} (pares com diferença de valor "
+                f"entre extrato e contábil, e itens em aberto sem par nenhum — ver seção 5): {total_fmt}. "
+                "Confirmar comprovantes e lançar o ajuste ou registrar a exceção."
             ),
-            "impacto": linha["valor_fmt"],
+            "impacto": total_fmt,
         })
-        checklist.append(f"Investigar '{linha['descricao']}' ({origem}, {linha['valor_fmt']}).")
+        checklist.append(f"Investigar os {natureza_principal} de {valores_fmt} (impacto {total_fmt}).")
 
     if any(a["titulo"].startswith("Período inconsistente") for a in alertas):
         recomendacoes.append({
@@ -341,13 +608,17 @@ def _calcular_recomendacoes(
     if matches_similaridade_linhas:
         soma_diffs = sum(abs(linha["diferenca"]) for linha in matches_similaridade_linhas)
         if soma_diffs > 0:
+            n_similaridade = len(matches_similaridade_linhas)
+            alvo_texto = (
+                "o lançamento casado por similaridade" if n_similaridade == 1
+                else f"os {n_similaridade} lançamentos casados por similaridade"
+            )
             recomendacoes.append({
                 "prioridade": "media",
                 "titulo": "Corrigir valores dos lançamentos por similaridade",
                 "texto": (
-                    "Ajustar os "
-                    f"{len(matches_similaridade_linhas)} lançamento(s) casados por similaridade cuja diferença "
-                    "de valor está detalhada na seção 4, se confirmados com os comprovantes."
+                    f"Ajustar {alvo_texto} cuja diferença de valor está detalhada na seção 4, se confirmados com "
+                    "os comprovantes."
                 ),
                 "impacto": _fmt_valor(soma_diffs),
             })
@@ -358,7 +629,8 @@ def _calcular_recomendacoes(
                 "prioridade": "baixa",
                 "titulo": "Padronizar datas dos casamentos por similaridade sem diferença de valor",
                 "texto": (
-                    f"{len(apenas_data)} par(es) têm apenas defasagem de data, sem efeito no valor. "
+                    f"{_fmt_contagem(len(apenas_data), 'par', 'pares')} "
+                    f"{pluralizar(len(apenas_data), 'tem', 'têm')} apenas defasagem de data, sem efeito no valor. "
                     "Padronizar a data do extrato no lançamento melhora o casamento automático futuro."
                 ),
                 "impacto": "Sem efeito financeiro",
@@ -435,6 +707,23 @@ def montar_contexto_executivo(
         saldo_extrato, saldo_contabil, liquido_extrato_aberto, liquido_contabil_aberto, soma_diferencas_similaridade
     )
 
+    # Pares prováveis apontados pelo sistema (seção 5a) + ponte detalhada
+    # linha a linha (seção 5b) + exposição agrupada por natureza — issue
+    # XCRE-44, item A2. Reaproveita o MESMO cálculo que
+    # pages/analise_dados.py já usa e expõe na UI/CSV (fonte única em
+    # modules.data_analyzer.identificar_pares_provaveis_similaridade),
+    # em vez de recalcular de forma divergente aqui.
+    pares_provaveis = identificar_pares_provaveis_similaridade(extrato_aberto, contabil_aberto)
+    pares_provaveis_linhas = [_linha_pares_provaveis(p) for p in pares_provaveis]
+    linhas_ponte_pares, nao_pareados_extrato, nao_pareados_contabil = _construir_ponte_detalhada(
+        extrato_aberto, contabil_aberto, pares_provaveis
+    )
+    ponte_detalhada = _montar_ponte_detalhada(
+        linhas_ponte_pares, nao_pareados_extrato, nao_pareados_contabil,
+        liquido_contabil_aberto, liquido_extrato_aberto,
+    )
+    exposicao = _calcular_exposicao_agrupada(linhas_ponte_pares, nao_pareados_extrato, nao_pareados_contabil)
+
     alertas = _calcular_alertas(
         extrato_df=extrato_df if extrato_df is not None else pd.DataFrame(),
         contabil_df=contabil_df if contabil_df is not None else pd.DataFrame(),
@@ -444,18 +733,23 @@ def montar_contexto_executivo(
         analista_nome=analista_nome,
         extrato_aberto=extrato_aberto,
         contabil_aberto=contabil_aberto,
+        exposicao=exposicao,
     )
     recomendacoes, checklist = _calcular_recomendacoes(
         alertas=alertas,
         matches_similaridade_linhas=matches_similaridade_linhas,
         extrato_aberto=extrato_aberto,
         contabil_aberto=contabil_aberto,
+        exposicao=exposicao,
     )
 
+    total_aberto_headline = len(extrato_aberto) + len(contabil_aberto)
     headline = (
-        f"O sistema casou {len(matches)} das {total_extrato} transações, mas só {len(matches_exatos)} "
-        f"casamento(s) são exatos. {len(matches_similaridade)} diferem em valor ou data, e "
-        f"{len(extrato_aberto) + len(contabil_aberto)} item(ns) seguem sem par."
+        f"O sistema casou {len(matches)} das {total_extrato} transações, mas só "
+        f"{_fmt_contagem(len(matches_exatos), 'casamento', 'casamentos')} "
+        f"{pluralizar(len(matches_exatos), 'é exato', 'são exatos')}. {len(matches_similaridade)} diferem em "
+        f"valor ou data, e {_fmt_contagem(total_aberto_headline, 'item', 'itens')} "
+        f"{pluralizar(total_aberto_headline, 'segue sem par', 'seguem sem par')}."
     )
     takeaways = [
         {
@@ -466,13 +760,17 @@ def montar_contexto_executivo(
         {
             "titulo": f"A cobertura efetiva é de {_fmt_pct(cobertura_efetiva)}%",
             "texto": (
-                f"Apenas {len(matches_exatos)} casamento(s) coincidem em valor e data. Os demais "
+                f"Apenas {_fmt_contagem(len(matches_exatos), 'casamento', 'casamentos')} "
+                f"{pluralizar(len(matches_exatos), 'coincide', 'coincidem')} em valor e data. Os demais "
                 f"{len(matches_similaridade)} foram aceitos por similaridade."
             ),
             "classe": "watch",
         },
         {
-            "titulo": f"{len(extrato_aberto) + len(contabil_aberto)} item(ns) seguem sem correspondência",
+            "titulo": (
+                f"{_fmt_contagem(total_aberto_headline, 'item', 'itens')} "
+                f"{pluralizar(total_aberto_headline, 'segue', 'seguem')} sem correspondência"
+            ),
             "texto": (
                 f"{len(extrato_aberto)} no extrato e {len(contabil_aberto)} no contábil — ver seção 5 "
                 "para a ponte de reconciliação."
@@ -489,6 +787,19 @@ def montar_contexto_executivo(
             "classe": "",
         },
     ]
+    if exposicao["natureza_principal"]:
+        # Exposição agrupada por natureza (issue XCRE-44, item A2c): o
+        # takeaway financeiro mais acionável do relatório — soma das
+        # divergências já explicadas por pares (seção 5b) + itens que
+        # seguem totalmente sem par, separada em recebimentos/pagamentos.
+        takeaways.append({
+            "titulo": f"Principal exposição: {exposicao['natureza_principal']}, {exposicao['total_principal_fmt']}",
+            "texto": (
+                f"Soma das divergências (pares com diferença de valor + itens sem par nenhum) em "
+                f"{exposicao['natureza_principal']} — ver a ponte detalhada na seção 5."
+            ),
+            "classe": "risk",
+        })
 
     empresa_display = (empresa_nome or "").strip() or "Não informado"
     analista_display = (analista_nome or "").strip() or "Não informado"
@@ -531,6 +842,9 @@ def montar_contexto_executivo(
         "extrato_aberto_linhas": _linhas_abertas(extrato_aberto),
         "contabil_aberto_linhas": _linhas_abertas(contabil_aberto),
         "ponte": ponte,
+        "pares_provaveis_linhas": pares_provaveis_linhas,
+        "ponte_detalhada": ponte_detalhada,
+        "exposicao": exposicao,
         "alertas": alertas,
         "recomendacoes": recomendacoes,
         "checklist": checklist,
