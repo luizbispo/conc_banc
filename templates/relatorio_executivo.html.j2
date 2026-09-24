@@ -225,6 +225,12 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
     <h2>5. Divergências e ponte de reconciliação</h2>
     <p class="lede">{{ total_aberto }} {{ pluralizar(total_aberto, 'item ficou', 'itens ficaram') }} sem correspondência: {{ total_extrato_aberto }} no extrato e {{ total_contabil_aberto }} no contábil.</p>
     <p class="muted" style="margin-top:2px">
+      Desse{{ 's' if total_aberto != 1 else '' }} {{ total_aberto }} {{ pluralizar(total_aberto, 'item', 'itens') }} em aberto:
+      {{ resumo_itens_abertos.pares_provaveis }} {{ pluralizar(resumo_itens_abertos.pares_provaveis, 'está', 'estão') }} em
+      par provável apontado pelo sistema, {{ resumo_itens_abertos.pares_hipotese }} em par por hipótese do analista e
+      {{ resumo_itens_abertos.sem_par }} {{ pluralizar(resumo_itens_abertos.sem_par, 'segue', 'seguem') }} sem par nenhum.
+    </p>
+    <p class="muted" style="margin-top:2px">
       <strong>Como ler os rótulos desta seção:</strong> "par provável apontado pelo sistema" é uma correspondência
       calculada automaticamente por similaridade (valor, data e texto parecidos); "hipótese do analista" é um par
       encontrado só por uma regra objetiva de mesma descrição e mesma data, sem respaldo do sistema. Os dois ainda

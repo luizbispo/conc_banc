@@ -264,6 +264,48 @@ def test_pdf_continua_com_no_maximo_10_paginas_apos_a_legenda(pdf_executivo_b_x_
     assert len(reader.pages) <= 10
 
 
+# --- XCRE-48 item 3: resumo dos 8 itens em aberto (pares prováveis / hipótese / sem par) ---
+
+def test_pdf_resumo_itens_abertos_soma_8_extraida_do_relatorio(pdf_executivo_b_x_c):
+    """A seção 5 deve abrir com uma linha de resumo das contagens dos 8
+    itens em aberto — pares prováveis apontados pelo sistema, pares por
+    hipótese do analista e itens sem par nenhum — usando os mesmos
+    significados da legenda da Rodada 2. As três contagens são
+    extraídas do próprio texto renderizado do PDF (não hard-codadas no
+    teste) e a soma deve bater com o total real de itens em aberto."""
+    texto = _extrair_texto(pdf_executivo_b_x_c)
+    texto_normalizado = re.sub(r"\s+", " ", texto)
+    match = re.search(
+        r"Desses? (\d+) itens? em aberto: (\d+) est\w+ em par provável apontado pelo sistema, "
+        r"(\d+) em par por hipótese do analista e (\d+) segu\w+ sem par nenhum",
+        texto_normalizado,
+    )
+    assert match, "linha de resumo dos itens em aberto não encontrada no PDF"
+    total_aberto, pares_provaveis, pares_hipotese, sem_par = (int(g) for g in match.groups())
+    assert pares_provaveis + pares_hipotese + sem_par == total_aberto
+    assert total_aberto == 8
+    # Baseline B×C intacto.
+    assert "77,8" in texto and "61,1" in texto and "147,55" in texto
+
+
+def test_resumo_itens_abertos_soma_bate_com_total_sem_par_sintetico():
+    """Complementa o teste acima com um cenário sintético (2 pares do
+    sistema + 1 por hipótese + 3 sem par) para garantir que a soma bate
+    mesmo fora do caso B×C — cada par conta os dois lados (extrato +
+    contábil) como itens individuais em aberto."""
+    from modules.report_executivo import _resumo_itens_abertos
+
+    linhas_pares = [
+        {"origem": "sistema"}, {"origem": "sistema"}, {"origem": "hipotese"},
+    ]
+    resumo = _resumo_itens_abertos(linhas_pares, total_sem_par=3)
+    assert resumo["pares_provaveis"] == 4
+    assert resumo["pares_hipotese"] == 2
+    assert resumo["sem_par"] == 3
+    assert resumo["total"] == 9
+    assert resumo["pares_provaveis"] + resumo["pares_hipotese"] + resumo["sem_par"] == resumo["total"]
+
+
 # --- CT-F3-10 / CT-F3-11: layout, sumário clicável, páginas, fontes ---
 
 def test_pdf_tem_no_maximo_10_paginas_e_referencia_gera_9_ou_menos(pdf_executivo_b_x_c):

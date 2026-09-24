@@ -398,6 +398,25 @@ def _montar_ponte_detalhada(
     }
 
 
+def _resumo_itens_abertos(linhas_pares: List[Dict], total_sem_par: int) -> Dict[str, Any]:
+    """Resumo do início da seção 5 (issue XCRE-48, item 3): quantos dos
+    itens em aberto estão em pares prováveis apontados pelo sistema,
+    quantos em pares por hipótese do analista, e quantos seguem sem par
+    nenhum — derivado da MESMA saída de `_construir_ponte_detalhada`
+    usada na tabela abaixo, nunca recalculado ou codificado à parte.
+    Cada par conta os DOIS lados (extrato + contábil) como itens
+    individuais em aberto, para a soma bater com o total de itens em
+    aberto (não com o número de pares)."""
+    pares_provaveis = sum(1 for l in linhas_pares if l["origem"] == "sistema") * 2
+    pares_hipotese = sum(1 for l in linhas_pares if l["origem"] == "hipotese") * 2
+    return {
+        "pares_provaveis": pares_provaveis,
+        "pares_hipotese": pares_hipotese,
+        "sem_par": total_sem_par,
+        "total": pares_provaveis + pares_hipotese + total_sem_par,
+    }
+
+
 def _juntar_valores_fmt(valores_fmt: List[str]) -> str:
     if not valores_fmt:
         return ""
@@ -731,6 +750,7 @@ def montar_contexto_executivo(
         linhas_ponte_pares, nao_pareados_extrato, nao_pareados_contabil,
         liquido_contabil_aberto, liquido_extrato_aberto,
     )
+    resumo_itens_abertos = _resumo_itens_abertos(linhas_ponte_pares, ponte_detalhada["total_sem_par"])
     exposicao = _calcular_exposicao_agrupada(linhas_ponte_pares, nao_pareados_extrato, nao_pareados_contabil)
 
     alertas = _calcular_alertas(
@@ -853,6 +873,7 @@ def montar_contexto_executivo(
         "ponte": ponte,
         "pares_provaveis_linhas": pares_provaveis_linhas,
         "ponte_detalhada": ponte_detalhada,
+        "resumo_itens_abertos": resumo_itens_abertos,
         "exposicao": exposicao,
         "alertas": alertas,
         "recomendacoes": recomendacoes,
