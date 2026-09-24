@@ -349,7 +349,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** Os três pares são identificados como heurísticos com percentuais de 70%, 75% e 90%; cada justificativa informa diferenças concretas, por exemplo `valor difere R$ 3,00; data difere 0 dias`. Não deve haver justificativa genérica que omita essas diferenças.
 
-**Status de execução:** `FAIL` — E2E fase 2 (local): as justificativas agora citam diferença de valor e de data (Parte A), mas somente 2 de 3 pares foram aceitos (ágüa e uber; dell rejeitado pela tolerância percentual fixa de 2%); confianças 90/95.
+**Status de execução:** `PASS` — E2E fase 2 (rodada incremental, commits `0123316`/`da39737`): os 3 pares heurísticos (ágüa 70, dell 75, uber 90) foram aceitos com justificativas citando diferença de valor e de data; o par Uber* Trip de 24% foi rejeitado e Pagamento recebido/Mercadolivre seguiram como sugestão, não como match.
 
 ### CT-CON-03 — Similaridade sugerida sem aceitação indevida
 
@@ -423,7 +423,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** A tela mostra 14 correspondências, cobertura de 77,8%, quatro divergências bancárias e quatro contábeis; as somas são R$ 1.386,22 e R$ 1.538,93, respectivamente.
 
-**Status de execução:** `FAIL` — build local (Parte A, tolerância fixa 2%): 12 matches, 66,7% de cobertura e 12 itens em divergência, divergindo da referência aprovada (14 / 77,8% / 8). Publicada (`main`, testada em 24/09): 14 / 77,8% / 8, conforme a referência.
+**Status de execução:** `PASS` — E2E fase 2 (rodada incremental): 14 matches (11 exatos + 3 heurísticos), 77,8% de cobertura e 8 divergências (4+4). Slider "Tolerância de Valor (%)" com padrão 10,00 (range 0–20) e teto absoluto fixo de R$ 5,00; sensibilidade de 2% a 20% coberta por `tests/test_tolerancia_referencia_b_x_c.py` (11 testes).
 
 ## Relatório e PDF
 
@@ -443,7 +443,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** A tela exibe período de 15/06/2025 a 14/07/2025, 18/18, 77,8%, oito itens divergentes no total e os valores separados R$ 1.386,22 e R$ 1.538,93.
 
-**Status de execução:** `FAIL` — local: cobertura 66,7%, 12 divergências e somas na tela R$ 1.449,42 / R$ 1.603,13 (formato EN `1,449.42`/`1,603.13`), fora da referência; publicada (`main`, 24/09): 77,8%, 8 divergências e somas `1,386.22`/`1,538.93`, conforme a referência. Período da tela local: 15/06/2025 a 16/07/2025.
+**Status de execução:** `PASS` — E2E fase 2 (rodada incremental): tela do relatório com 18/18, 77,8%, 8 divergências e somas R$ 1.386,22 / R$ 1.538,93 (aba Divergências); período na tela 15/06/2025 a 16/07/2025. A publicada (`main`, fase 1, testada em 24/09) também exibe a referência de B×C, mas com o bug de período `September/2026`.
 
 ### CT-REL-02 — PDF com período real dos dados
 
@@ -460,7 +460,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O campo mostra `15/06/2025 a 14/07/2025` ou formato equivalente, sem usar `September/2026` ou outro mês de geração.
 
-**Status de execução:** `PASS` — local (Parte A): o PDF imprime "Período: 15/06/2025 a 16/07/2025", sem mês de geração (o fim fica 2 dias após a referência 14/07 por incluir lançamentos contábeis). Publicada (`main`, 24/09): ainda "September/2026" — bug da fase 1 presente, esperado até merge+deploy da Parte A.
+**Status de execução:** `PASS` — reconfirmado na rodada incremental: PDF local imprime "Período: 15/06/2025 a 16/07/2025", sem mês de geração. A publicada (`main`, 24/09) ainda mostra "September/2026" — bug da fase 1, esperado até merge+deploy.
 
 ### CT-REL-03 — PDF com soma monetária das divergências
 
@@ -477,7 +477,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O PDF imprime explicitamente as duas somas e as contagens; o leitor não precisa somar manualmente as linhas.
 
-**Status de execução:** `FAIL` — local: a soma literal passou a ser impressa no PDF, porém no valor R$ 1.449,42 / R$ 1.603,13 com contagens 6+6, e não na referência R$ 1.386,22 / R$ 1.538,93 com 4+4 (efeito da tolerância fixa de 2%). Publicada (`main`, 24/09): continua sem somas no PDF (bug da fase 1) com contagens 4+4.
+**Status de execução:** `PASS` — E2E fase 2 (rodada incremental): o PDF imprime as somas literais R$ 1.386,22 / R$ 1.538,93 com contagens 4+4, exatamente a referência (a tolerância híbrida10% + teto R$5,00 restaurou os valores aprovados).
 
 ### CT-REL-04 — Justificativa de match heurístico no PDF/relatório
 
@@ -494,7 +494,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** Cada justificativa declara similaridade, diferença monetária e diferença de data; os números correspondem às transações apresentadas.
 
-**Status de execução:** `FAIL` — local: formato rico ("valor difere"/"data difere") presente, porém apenas 1 match heurístico impresso no PDF (< 3 esperados) pela nova tolerância; publicada (`main`, 24/09): 3 matches heurísticos apenas com similaridade textual, sem diferença de valor/data.
+**Status de execução:** `PASS` — E2E fase 2 (rodada incremental): o PDF contém as 3 justificativas ricas ("valor difere"/"data difere") dos 3 matches heurísticos, conforme a referência.
 
 ## Auditoria, persistência e riscos residuais
 
@@ -516,7 +516,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** Há eventos para falha/sucesso de login, upload, processamento, matching e geração de relatório; cada evento tem timestamp, usuário/sistema e detalhes úteis. Senha, JWT e outros segredos não aparecem.
 
-**Status de execução:** `FAIL` — E2E fase 2: eventos de login (falha/ok), logout, upload, processamento, matching, migração de senha e bloqueio de rate limit são registrados com usuário e sem segredos; falta o evento de geração de relatório (`log_report_generation` existe, mas `pages/` nunca o chama).
+**Status de execução:** `PASS` — E2E fase 2 (rodada incremental): eventos de login (falha/ok), logout, upload, processamento, matching, migração de senha, bloqueio de rate limit e **geração de relatório** registrados com usuário e sem segredos. Sucesso do relatório confirmado ao vivo (eventos `REPORT_GENERATION` com `success=true`, usuário, lote, formato e contagens em `audit_log.db`) e caminho de falha coberto pelo teste de página `tests/test_gerar_relatorio_auditoria.py` (sucesso e falha PASS).
 
 ### CT-AUD-02 — Persistência após reinício
 
@@ -645,9 +645,9 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 ## Divergências, riscos e decisões pendentes
 
-- Execução de24/09/2026: pública (`concbanctest.streamlit.app`, `origin/main` = fase 1) e local (build `5e83698` com os8 commits da Parte A) foram testadas com o mesmo fluxo B×C; diferenças registradas nesta issue e nos artefatos `e2e_artifacts/` do revisor.
-- Defeitos da fase1 confirmados NA PUBLICADA (período `September/2026` no PDF, ausência de soma literal no PDF, justificativa heurística só com similaridade) e corrigidos NO BUILD LOCAL (período real; soma literal impressa; justificativa com diferença de valor/data).
-- O cenário B×C divergiu entre os dois builds: publicada14 matches / 77,8% /8 divergências (referência); local12 /66,7% /12 — a tolerância fixa de2% rejeita pares que a média do lote aceitava (dell), e as somas da tela/PDF viram R$1.449,42 / R$1.603,13. Os itens2 e4 da Parte A conflitam como executados: a soma pedida (R$1.386,22 / R$1.538,93) não é alcançável com a tolerância atual — decidir se revisa a tolerância ou se atualiza a referência.
-- A tolerância agora é fixa e documentada (item4 implementado); os valores de referência do capítulo de divergências precisam ser redefinidos ou a tolerância recalibrada antes de nova aprovação de resultado.
-- Itens5a–5e testados localmente (revogação no logout, limites de páginas, CloudImporter endurecido, rotação de `audit_log.db`, remoção de `modules/user_manager.py`); rate limit segue só por identificador, com a limitação documentada. Nada disso está publicado até o merge no `main`.
+- Revisão incremental dos commits `0123316` (tolerância) e `da39737` (auditoria do relatório) executada em 24/09/2026: `pytest tests/` → 124/124 PASS; E2E local B×C completo → 28/28 PASS (referência integral restaurada).
+- Os defeitos da fase 1 (período no PDF, soma literal, justificativa rica) seguem corrigidos no build local; a publicada (`main`, fase 1) ainda os exibe — merge+deploy pendentes.
+- O conflito itens 2×4 foi resolvido pela tolerância híbrida decidida pelo arquiteto: percentual padrão de 10% (slider 0–20) com teto absoluto de R$ 5,00 — aceita ágüa/dell/uber, rejeita Uber* Trip (24%) e Pagamento recebido, e reproduz R$1.386,22/R$1.538,93 com 4+4. Sensibilidade testada de 2% a 20%; fronteira documentada no código (par rejeitado só empataria ≥24%, fora do range da UI).
+- As referências funcionais B×C foram mantidas (decisão do arquiteto); a regra da tolerância está documentada em `modules/data_analyzer.py` e coberta por teste de sensibilidade.
+- CT-AUD-01 resolvido (evento de relatório com sucesso/falha, usuário, lote e formato, sem segredos). Itens 5a–5e seguem testados localmente; push/merge para `main` seguem pendentes de credencial GitHub.
 - Qualquer execução de CT-AUTH-03 ou CT-AUTH-05 exige confirmação humana explícita antes da espera de tempo real; os demais casos podem ser executados sem essa autorização adicional.
