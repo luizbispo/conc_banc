@@ -237,6 +237,33 @@ def test_pdf_explicita_a_passagem_da_ponte_detalhada_para_a_compacta(pdf_executi
     assert "147,55" in texto
 
 
+# --- XCRE-48 item 2: legenda "par provável apontado pelo sistema" vs "hipótese do analista" ---
+
+def test_pdf_contem_legenda_dos_rotulos_par_provavel_e_hipotese(pdf_executivo_b_x_c):
+    """A seção 5 deve trazer uma legenda curta (1-2 linhas) explicando os
+    dois rótulos usados nas tabelas de pares: "par provável apontado
+    pelo sistema" (calculado por similaridade) e "hipótese do analista"
+    (regra objetiva de descrição + data, ainda sem confirmação) — sem
+    quebrar o limite de 10 páginas nem alterar o baseline B×C."""
+    texto = _extrair_texto(pdf_executivo_b_x_c)
+    texto_normalizado = re.sub(r"\s+", " ", texto)
+    assert "Como ler os rótulos desta seção" in texto_normalizado
+    assert "par provável apontado pelo sistema" in texto_normalizado
+    assert "calculada automaticamente por similaridade" in texto_normalizado
+    assert "hipótese do analista" in texto_normalizado
+    assert "regra objetiva de mesma descrição e mesma data" in texto_normalizado
+    # A legenda deve aparecer uma única vez na seção 5, não repetida a
+    # cada linha/tabela.
+    assert texto_normalizado.count("Como ler os rótulos desta seção") == 1
+    # Baseline B×C intacto.
+    assert "77,8" in texto and "61,1" in texto and "147,55" in texto
+
+
+def test_pdf_continua_com_no_maximo_10_paginas_apos_a_legenda(pdf_executivo_b_x_c):
+    reader = PdfReader(pdf_executivo_b_x_c)
+    assert len(reader.pages) <= 10
+
+
 # --- CT-F3-10 / CT-F3-11: layout, sumário clicável, páginas, fontes ---
 
 def test_pdf_tem_no_maximo_10_paginas_e_referencia_gera_9_ou_menos(pdf_executivo_b_x_c):

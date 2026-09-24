@@ -224,6 +224,12 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
   <div class="keep">
     <h2>5. Divergências e ponte de reconciliação</h2>
     <p class="lede">{{ total_aberto }} {{ pluralizar(total_aberto, 'item ficou', 'itens ficaram') }} sem correspondência: {{ total_extrato_aberto }} no extrato e {{ total_contabil_aberto }} no contábil.</p>
+    <p class="muted" style="margin-top:2px">
+      <strong>Como ler os rótulos desta seção:</strong> "par provável apontado pelo sistema" é uma correspondência
+      calculada automaticamente por similaridade (valor, data e texto parecidos); "hipótese do analista" é um par
+      encontrado só por uma regra objetiva de mesma descrição e mesma data, sem respaldo do sistema. Os dois ainda
+      precisam de confirmação manual antes de virar ajuste.
+    </p>
     <div class="split" style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
       <div>
         <h3 style="margin-top:6px">Extrato sem lançamento ({{ total_extrato_aberto }})</h3>
