@@ -52,6 +52,13 @@ class AuditLogger:
         self.audit_log = []
         self.session_id = str(uuid.uuid4())
         self.db_path = db_path or os.getenv("CONCILIACAO_AUDIT_DB_PATH", "audit_log.db")
+        # Política de rotação por TAMANHO: sem nenhum limite, audit_log.db
+        # cresce para sempre. Ao ultrapassar max_size_bytes, o arquivo
+        # ATIVO é renomeado com um sufixo de timestamp (arquivo antigo
+        # preservado, nunca editado/apagado — continua append-only) e um
+        # arquivo novo é iniciado no caminho original. Nenhuma linha
+        # existente é tocada; só decide QUANDO começar um arquivo novo.
+        self.max_size_bytes = int(os.getenv("CONCILIACAO_AUDIT_MAX_SIZE_MB", "50")) * 1024 * 1024
         self._init_storage()
 
     def _init_storage(self) -> None:
@@ -73,7 +80,23 @@ class AuditLogger:
         conn.commit()
         conn.close()
 
+    def _rotacionar_se_necessario(self) -> None:
+        """Arquiva o arquivo ativo se ele já ultrapassou o limite de
+        tamanho, e recria um arquivo novo no caminho original."""
+        if not os.path.exists(self.db_path):
+            return
+        if os.path.getsize(self.db_path) < self.max_size_bytes:
+            return
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        destino = f"{self.db_path}.{timestamp}"
+        if os.path.exists(destino):
+            destino = f"{destino}_{uuid.uuid4().hex[:8]}"
+        os.rename(self.db_path, destino)
+        logger.info("audit_log.db rotacionado por tamanho: histórico preservado em %s", destino)
+        self._init_storage()
+
     def _persist(self, log_entry: Dict[str, Any]) -> None:
+        self._rotacionar_se_necessario()
         conn = sqlite3.connect(self.db_path)
         conn.execute('''
             INSERT INTO audit_log
@@ -239,22 +262,43 @@ class AuditLogger:
         )
     
     def log_report_generation(self,
-                             report_type: str,
+                             formato: str,
                              user: str,
-                             included_matches: int,
-                             included_exceptions: int,
-                             report_parameters: Dict[str, Any]) -> str:
-        """Log de geração de relatório"""
+                             lote: str,
+                             success: bool = True,
+                             included_matches: int = 0,
+                             included_exceptions: int = 0,
+                             error_message: Optional[str] = None,
+                             report_parameters: Dict[str, Any] = None) -> str:
+        """Log de geração de relatório PDF (sucesso ou falha).
+
+        Este método já existia mas nunca era chamado por
+        pages/gerar_relatorio.py — CT-AUD-01 (issue XCRE-42) apontou a
+        ausência do evento de relatório na auditoria. lote identifica QUAL
+        conciliação foi reportada (ex.: conta analisada + período), para
+        distinguir gerações de relatórios diferentes sem expor dados
+        sensíveis; nenhum segredo (senha, token) é aceito nos campos
+        deste método — quem chama é responsável por não passar nenhum."""
+        descricao = (
+            f"Relatório {formato} gerado para o lote '{lote}': "
+            f"{included_matches} matches, {included_exceptions} exceções"
+            if success else
+            f"Falha ao gerar relatório {formato} para o lote '{lote}': {error_message}"
+        )
         return self.log_action(
             action=AuditAction.REPORT_GENERATION,
             user=user,
-            description=f"Relatório {report_type} gerado: {included_matches} matches, {included_exceptions} exceções",
+            description=descricao,
             details={
-                'report_type': report_type,
+                'formato': formato,
+                'lote': lote,
+                'success': success,
                 'included_matches': included_matches,
                 'included_exceptions': included_exceptions,
-                'report_parameters': report_parameters
-            }
+                'error_message': error_message,
+                'report_parameters': report_parameters or {},
+            },
+            severity=AuditSeverity.ERROR if not success else AuditSeverity.INFO,
         )
     
     def log_config_change(self,

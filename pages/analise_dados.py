@@ -6,10 +6,61 @@ from datetime import datetime, timedelta
 import tempfile
 import modules.data_analyzer as analyzer
 from difflib import SequenceMatcher
-from modules.auth_middleware import require_auth
+from modules.auth_middleware import require_auth, get_current_user
 import plotly.express as px
 import plotly.graph_objects as go
 from modules.interactive_dashboard import get_dashboard
+from modules.audit_logger import get_audit_logger
+
+audit = get_audit_logger()
+
+
+def _registrar_auditoria_matching(resultados_finais: dict, tolerancia_percentual: float, usuario: str) -> None:
+    """Registra na auditoria (SQLite append-only) cada decisão de
+    matching aceita, com confiança e camada, além de um resumo por
+    camada.
+
+    Antes as funções log_matching_layer/log_match_decision existiam em
+    modules/audit_logger.py mas nunca eram chamadas a partir do fluxo
+    real de análise — só os eventos de login/upload/relatório eram
+    auditados. Isso deixava a decisão de aceitar ou não um par sem
+    trilha, o que é justamente o tipo de decisão que mais precisa de
+    auditoria (ex.: por que um par com 24% de diferença foi ou não
+    aceito)."""
+    matches = resultados_finais.get('matches', [])
+    stats = resultados_finais.get('estatisticas', {})
+
+    # (camada nos dados do match, sufixo esperado por AuditAction.MATCHING_*)
+    for camada, layer_audit, total in (
+        ('exata', 'exato', stats.get('matches_exatos', 0)),
+        ('heuristica', 'heuristico', stats.get('matches_heuristicos', 0)),
+        ('ia', 'ia', stats.get('matches_ia', 0)),
+    ):
+        confiancas_camada = [m.get('confianca', 0) for m in matches if m.get('camada') == camada]
+        audit.log_matching_layer(
+            layer=layer_audit,
+            matches_found=total,
+            confidence_stats={
+                'avg': (sum(confiancas_camada) / len(confiancas_camada)) if confiancas_camada else 0,
+                'min': min(confiancas_camada) if confiancas_camada else 0,
+                'max': max(confiancas_camada) if confiancas_camada else 0,
+            },
+            processing_time=0.0,
+            parameters={'tolerancia_dias': 2, 'tolerancia_valor_percentual': tolerancia_percentual},
+            user=usuario,
+        )
+
+    for match in matches:
+        transaction_ids = [str(i) for i in match.get('ids_extrato', [])] + \
+                           [str(i) for i in match.get('ids_contabil', [])]
+        audit.log_match_decision(
+            match_id=match.get('chave_match', 'N/A'),
+            decision='approved',
+            user=usuario,
+            reason=f"aceito automaticamente pela camada '{match.get('camada', 'N/A')}'",
+            confidence=match.get('confianca', 0),
+            transaction_ids=transaction_ids,
+        )
 
 
 @require_auth
@@ -235,12 +286,18 @@ def main():
         # REMOVIDO: Tolerância de Data e Similaridade Mínima
         # ADICIONADO: Tolerância de Percentual
         tolerancia_percentual = st.slider(
-            "Tolerância de Valor (%)", 
-            min_value=0.0, 
-            max_value=10.0, 
-            value=2.0, 
+            "Tolerância de Valor (%)",
+            min_value=0.0,
+            max_value=20.0,
+            value=analyzer.TOLERANCIA_VALOR_PERCENTUAL_PADRAO,  # 10.0% — ver módulo para o porquê
             step=0.1,
-            help="Diferença percentual máxima permitida entre valores para considerar como correspondência"
+            help=(
+                "Diferença percentual máxima permitida entre valores para considerar como "
+                "correspondência. Some-se sempre a um teto absoluto fixo de "
+                f"R$ {analyzer.TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO:.2f} "
+                "(o MENOR dos dois vale) — evita aceitar diferenças grandes em R$ só "
+                "porque a transação também é grande."
+            ),
         )
         
         st.info("ℹ️ **Configurações automáticas:**")
@@ -280,23 +337,23 @@ def main():
             progress_bar.progress(40)
             status_text.text("Executando análise...")
             
-            # CONVERTER TOLERÂNCIA PERCENTUAL PARA VALOR ABSOLUTO
-            # Para usar nas funções existentes, precisamos converter % para R$
-            # Vamos calcular uma tolerância média baseada nos dados
-            valor_medio = extrato_filtrado['valor_matching'].mean()
-            tolerancia_valor_abs = (tolerancia_percentual / 100) * valor_medio
-            
             # Executar análise em camadas com tolerâncias fixas
             resultados_exato = analyzer.matching_exato(extrato_filtrado, contabil_filtrado)
             progress_bar.progress(60)
-            
+
+            # TOLERÂNCIA DE VALOR: percentual explícito aplicado por par
+            # (percentual × valor de cada transação bancária), não mais um
+            # R$ fixo derivado da média do lote — a média mudava a cada
+            # importação/filtro e podia aceitar ou rejeitar o mesmo par
+            # dependendo do que mais estava no lote (ver
+            # modules.data_analyzer.TOLERANCIA_VALOR_PERCENTUAL_PADRAO).
             # USAR TOLERÂNCIAS FIXAS: 2 dias e similaridade 70%
             resultados_heurístico = analyzer.matching_heuristico(
-                extrato_filtrado, contabil_filtrado, 
+                extrato_filtrado, contabil_filtrado,
                 resultados_exato['nao_matchados_extrato'],
                 resultados_exato['nao_matchados_contabil'],
                 tolerancia_dias=2,  # FIXO
-                tolerancia_valor=tolerancia_valor_abs,
+                tolerancia_valor_percentual=tolerancia_percentual,
                 similaridade_minima=70  # FIXO
             )
             progress_bar.progress(80)
@@ -314,7 +371,16 @@ def main():
             resultados_finais = analyzer.consolidar_resultados(
                 resultados_exato, resultados_heurístico, resultados_ia
             )
-            
+
+            # AUDITORIA: registrar cada decisão de matching (par aceito,
+            # confiança, camada) — ver _registrar_auditoria_matching.
+            _usuario_logado = get_current_user()
+            _registrar_auditoria_matching(
+                resultados_finais,
+                tolerancia_percentual,
+                _usuario_logado['username'] if _usuario_logado else 'Sistema',
+            )
+
             # Salvar na sessão
             st.session_state['resultados_analise'] = resultados_finais
             st.session_state['extrato_filtrado'] = extrato_filtrado

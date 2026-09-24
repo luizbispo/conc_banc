@@ -38,6 +38,28 @@ def validar_tamanho_arquivo(arquivo):
         return False, f"Arquivo '{arquivo.name}' excede o limite de {limite_mb:.0f}MB ({tamanho_mb:.1f}MB)."
     return True, None
 
+# Limite de páginas/linhas para PDF e CNAB: o limite de tamanho em bytes
+# acima não protege contra um arquivo pequeno em disco mas com um número
+# extremo de páginas/linhas (ex.: um PDF majoritariamente texto), que
+# fazia processar_pdf/processar_cnab iterar sem nenhum teto — consumo de
+# CPU proporcional ao conteúdo, não ao tamanho em bytes validado.
+MAX_PDF_PAGINAS = int(os.getenv("CONCILIACAO_MAX_PDF_PAGINAS", "200"))
+MAX_CNAB_LINHAS = int(os.getenv("CONCILIACAO_MAX_CNAB_LINHAS", "50000"))
+
+def _contar_linhas_arquivo(arquivo) -> int:
+    """Conta as linhas do arquivo (tentando os mesmos encodings dos
+    parsers CNAB) e devolve o cursor ao início, para que o processamento
+    normal leia o conteúdo completo depois."""
+    arquivo.seek(0)
+    content = arquivo.read()
+    arquivo.seek(0)
+    for encoding in ['latin-1', 'iso-8859-1', 'cp1252', 'utf-8']:
+        try:
+            return len(content.decode(encoding).split('\n'))
+        except UnicodeDecodeError:
+            continue
+    return 0
+
 # --- Menu Customizado ---
 with st.sidebar:
     st.markdown("### Navegação Principal") 
@@ -657,6 +679,14 @@ def processar_cnab_generico(arquivo):
 def processar_cnab(arquivo):
     """Processa arquivo CNAB (.RET) com fallback"""
     try:
+        num_linhas = _contar_linhas_arquivo(arquivo)
+        if num_linhas > MAX_CNAB_LINHAS:
+            st.error(
+                f"❌ Arquivo CNAB com {num_linhas} linhas excede o limite de "
+                f"{MAX_CNAB_LINHAS} linhas por importação."
+            )
+            return None
+
         # Primeira tentativa: processamento específico Caixa
         resultado = processar_cnab_caixa_especifico(arquivo)
         if resultado is not None and not resultado.empty:
@@ -777,7 +807,15 @@ def processar_pdf(arquivo):
     try:
         import PyPDF2
         pdf_reader = PyPDF2.PdfReader(io.BytesIO(arquivo.read()))
-        
+
+        num_paginas = len(pdf_reader.pages)
+        if num_paginas > MAX_PDF_PAGINAS:
+            st.error(
+                f"❌ PDF com {num_paginas} páginas excede o limite de {MAX_PDF_PAGINAS} "
+                f"páginas por importação."
+            )
+            return None
+
         texto = ""
         for page in pdf_reader.pages:
             texto += page.extract_text() + "\n"

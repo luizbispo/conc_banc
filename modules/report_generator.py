@@ -8,6 +8,59 @@ import os
 from typing import List, Dict, Any
 import traceback
 
+
+def parse_valor_moeda(valor_str) -> float:
+    """Converte uma string de valor monetário (prefixo 'R$' opcional, sinal
+    negativo opcional) para float, aceitando tanto a convenção BRL (milhar
+    '.', decimal ',') quanto a convenção usada pelo próprio f"{valor:,.2f}"
+    do Python (milhar ',', decimal '.').
+
+    Movida de pages/gerar_relatorio.py (única fonte agora) para poder ser
+    reutilizada aqui, na geração do PDF, ao somar as colunas 'Valor' das
+    tabelas de divergência — antes só a tela recalculava esse total; o PDF
+    imprimia apenas as contagens.
+
+    Estratégia: o ÚLTIMO separador (',' ou '.') que aparece na string é
+    tratado como decimal; qualquer separador do outro tipo é tratado como
+    milhar e removido. Isso decide corretamente entre as duas convenções
+    sem precisar adivinhar qual foi usada para gerar a string.
+    """
+    if valor_str is None:
+        raise ValueError("valor monetário vazio")
+
+    s = str(valor_str).strip().replace('R$', '').strip()
+
+    negativo = False
+    if s.startswith('-'):
+        negativo = True
+        s = s[1:].strip()
+    elif s.startswith('(') and s.endswith(')'):
+        negativo = True
+        s = s[1:-1].strip()
+
+    if not s:
+        raise ValueError(f"valor monetário vazio: {valor_str!r}")
+
+    ultima_virgula = s.rfind(',')
+    ultimo_ponto = s.rfind('.')
+
+    if ultima_virgula > ultimo_ponto:
+        numero = s.replace('.', '').replace(',', '.')
+    else:
+        numero = s.replace(',', '')
+
+    valor = float(numero)
+    return -valor if negativo else valor
+
+
+def formatar_valor_brl(valor: float) -> str:
+    """Formata um float como string monetária BRL: 'R$ 1.386,22'
+    (milhar '.', decimal ',') — convenção esperada pelo leitor do
+    relatório, independente da convenção usada internamente pelas tabelas
+    de origem."""
+    texto = f"{valor:,.2f}"  # ex.: '1,386.22' (convenção EN)
+    return "R$ " + texto.replace(",", "@").replace(".", ",").replace("@", ".")
+
 class PDFReport(FPDF):
     def __init__(self):
         super().__init__()
@@ -408,7 +461,8 @@ def gerar_relatorio_analise(resultados_analise: Dict,
                     
                     pdf.ln(5)
                     pdf.set_font('Arial', 'I', 8)
-                    pdf.cell(0, 6, f'Total de transações sem correspondência: {len(transacoes_sem_correspondencia)}', 0, 1)
+                    soma_bancario = _somar_coluna_valor(transacoes_sem_correspondencia)
+                    pdf.cell(0, 6, f'Total de transações sem correspondência: {len(transacoes_sem_correspondencia)} | Soma: {formatar_valor_brl(soma_bancario)}', 0, 1)
                     pdf.ln(5)
                 
                 # Tabela 2: Lançamentos Contábeis sem Correspondência
@@ -434,7 +488,8 @@ def gerar_relatorio_analise(resultados_analise: Dict,
                     
                     pdf.ln(5)
                     pdf.set_font('Arial', 'I', 8)
-                    pdf.cell(0, 6, f'Total de lançamentos sem correspondência: {len(lancamentos_sem_correspondencia)}', 0, 1)
+                    soma_contabil = _somar_coluna_valor(lancamentos_sem_correspondencia)
+                    pdf.cell(0, 6, f'Total de lançamentos sem correspondência: {len(lancamentos_sem_correspondencia)} | Soma: {formatar_valor_brl(soma_contabil)}', 0, 1)
                     pdf.ln(5)
                 
                 # Tabela 3: Similaridades
@@ -612,6 +667,23 @@ def gerar_relatorio_analise(resultados_analise: Dict,
         
         # Criar relatório de fallback
         return _gerar_relatorio_fallback(empresa_nome, contador_nome, str(e))
+
+def _somar_coluna_valor(df: pd.DataFrame, coluna: str = 'Valor') -> float:
+    """Soma os valores absolutos de uma coluna monetária formatada como
+    string (ex.: 'R$ 1.300,00'), ignorando linhas que não sejam
+    parseáveis. Usada para imprimir no PDF a mesma soma que a tela já
+    mostrava (ver pages/gerar_relatorio.py), que antes só existia na
+    interface."""
+    total = 0.0
+    if df is None or df.empty or coluna not in df.columns:
+        return total
+    for valor_str in df[coluna]:
+        try:
+            total += abs(parse_valor_moeda(valor_str))
+        except (ValueError, TypeError):
+            continue
+    return total
+
 
 def _abreviar_tipo_divergencia(tipo_original):
     """Abrevia tipos longos de divergência para melhor visualização na tabela - TERMINOLOGIA MELHORADA"""

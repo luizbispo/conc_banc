@@ -133,9 +133,60 @@ def init_security_tables(conn: Optional[sqlite3.Connection] = None) -> None:
             locked_until TIMESTAMP
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS revoked_tokens (
+            jti TEXT PRIMARY KEY,
+            revoked_at TIMESTAMP NOT NULL,
+            expires_at TIMESTAMP NOT NULL
+        )
+    ''')
     conn.commit()
     if owns_conn:
         conn.close()
+
+# --- REVOGAÇÃO DE TOKEN NO SERVIDOR ---
+# O JWT tem validade de 24h (JWT_EXPIRATION_HOURS em app.py) e, até aqui,
+# "logout" só limpava o st.session_state local: o token continuava
+# criptograficamente válido no servidor até expirar sozinho — quem
+# copiasse o token antes do logout podia reutilizá-lo por até 24h. Uma
+# lista de revogação por jti (JWT ID único por token, ver
+# generate_jti/app.py) fecha essa janela sem precisar de estado de sessão
+# no servidor para todo login (só para os tokens efetivamente
+# revogados).
+
+def generate_jti() -> str:
+    """Gera um identificador único e imprevisível para um novo token JWT."""
+    return secrets.token_hex(16)
+
+def revoke_token(jti: str, expires_at) -> None:
+    """Marca um token (pelo jti) como revogado até sua própria expiração
+    natural. Também remove entradas já expiradas da tabela, para que ela
+    não cresça indefinidamente com tokens que já seriam recusados de
+    qualquer forma pela expiração do JWT."""
+    if not jti:
+        return
+    now = datetime.now()
+    expires_at_str = expires_at.isoformat() if hasattr(expires_at, 'isoformat') else str(expires_at)
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('DELETE FROM revoked_tokens WHERE expires_at <= ?', (now.isoformat(),))
+    c.execute('''
+        INSERT OR REPLACE INTO revoked_tokens (jti, revoked_at, expires_at)
+        VALUES (?, ?, ?)
+    ''', (jti, now.isoformat(), expires_at_str))
+    conn.commit()
+    conn.close()
+
+def is_token_revoked(jti: Optional[str]) -> bool:
+    """Verifica se um token (pelo jti) está na lista de revogação."""
+    if not jti:
+        return False
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('SELECT 1 FROM revoked_tokens WHERE jti = ?', (jti,))
+    row = c.fetchone()
+    conn.close()
+    return row is not None
 
 def _normalize_identifier(identifier: str) -> str:
     return (identifier or "").strip().lower()
@@ -145,7 +196,26 @@ def check_login_rate_limit(identifier: str) -> tuple[bool, int]:
 
     A limitação é aplicada pelo identificador digitado (username/email),
     independente de o usuário existir de fato, para não criar um oráculo
-    de enumeração de contas via presença/ausência de bloqueio."""
+    de enumeração de contas via presença/ausência de bloqueio.
+
+    Limitação conhecida e documentada (issue XCRE-42, item 5b): a
+    limitação é SÓ por identificador, não também por origem da
+    requisição (ex.: IP). Isso foi avaliado e descartado deliberadamente,
+    não esquecido: o Streamlit não expõe, na API pública/estável de
+    st.* usada por este app, o IP real do cliente de forma confiável —
+    em produção, o processo normalmente fica atrás de um proxy reverso,
+    e cabeçalhos como X-Forwarded-For são definidos pelo CLIENTE na
+    requisição, então um atacante pode simplesmente enviar um valor
+    diferente a cada tentativa e contornar qualquer limite baseado
+    nisso sem confirmação do proxy confiável. Adicionar uma limitação
+    "por IP" a partir de um sinal que o próprio atacante controla criaria
+    uma falsa sensação de proteção, não uma proteção real. Se um sinal de
+    origem confiável vier a existir (ex.: cabeçalho injetado
+    exclusivamente pelo proxy confiável do ambiente de produção, nunca
+    repassado de fora), a limitação por origem pode ser adicionada aqui
+    como camada extra — sem substituir a limitação por identificador,
+    que continua sendo a defesa primária contra força bruta numa conta
+    específica."""
     identifier = _normalize_identifier(identifier)
     conn = get_db_connection()
     c = conn.cursor()
@@ -247,6 +317,13 @@ def enforce_auth() -> None:
         st.stop()
     except jwt.InvalidTokenError:
         st.error("❌ Token inválido. Faça login novamente.")
+        _clear_session()
+        if st.button("🔄 Fazer Login"):
+            st.switch_page("app.py")
+        st.stop()
+
+    if is_token_revoked(payload.get('jti')):
+        st.error("🔒 Sessão encerrada (logout). Faça login novamente.")
         _clear_session()
         if st.button("🔄 Fazer Login"):
             st.switch_page("app.py")

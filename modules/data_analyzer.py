@@ -19,6 +19,34 @@ except ImportError:
         return {'matches': [], 'matches_semanticos': 0, 'matches_temporais': 0, 
                 'matches_agrupados': 0, 'matches_entidades': 0}
 
+# Tolerância padrão de valor para o matching heurístico: MENOR valor entre
+# um percentual do valor da transação bancária e um teto absoluto em R$
+# (não mais derivada da média do lote — ver histórico de correção em
+# pages/analise_dados.py). Documentado aqui como a fonte única de verdade
+# do padrão; ambos os valores podem ser sobrepostos por chamador (ex.: o
+# slider "Tolerância de Valor (%)" da página de análise).
+#
+# Por que os DOIS limites, e não só um percentual: um percentual sozinho
+# trata igualmente uma diferença de R$2,00 numa transação de R$22,90
+# (8,7%) e uma diferença de R$100,00 numa transação de R$1.300,00
+# (7,7%) — mas a segunda é uma divergência muito mais material em termos
+# absolutos, e o cenário de referência B×C (ver
+# tests/test_data_analyzer.py::test_tolerancia_reproduz_referencia_b_x_c)
+# exige aceitar a primeira como match heurístico (par "Dell") e manter a
+# segunda como mera sugestão, não como correspondência aceita (par
+# "Pagamento recebido"). O teto absoluto é o que separa os dois casos; o
+# percentual sozinho não consegue.
+#
+# Valores escolhidos para satisfazer TODOS os pares de referência do
+# cenário B×C ao mesmo tempo (ver teste de sensibilidade acima):
+# aceitar Águia Branca (diferença R$3,00 / 7,44%) e Dell (R$2,00 / 8,73%);
+# rejeitar Uber* Trip com 24% (R$5,00 / 24,04%) e Pagamento recebido
+# (R$100,00 / 7,69% — dentro do percentual, mas muito acima do teto
+# absoluto).
+TOLERANCIA_VALOR_PERCENTUAL_PADRAO = 10.0
+TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO = 5.00  # R$
+
+
 class DataAnalyzer:
     def __init__(self):
         self.matches_identificados = []
@@ -78,31 +106,43 @@ class DataAnalyzer:
     
     def matching_heuristico(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
                           nao_matchados_extrato: pd.DataFrame, nao_matchados_contabil: pd.DataFrame,
-                          tolerancia_dias: int = 2, tolerancia_valor: float = 0.02,
-                          similaridade_minima: int = 80) -> Dict:
-        """Camada 2: Matching heurístico com tolerâncias"""
+                          tolerancia_dias: int = 2,
+                          tolerancia_valor_percentual: float = TOLERANCIA_VALOR_PERCENTUAL_PADRAO,
+                          similaridade_minima: int = 80,
+                          tolerancia_valor_absoluta_maxima: float = TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO) -> Dict:
+        """Camada 2: Matching heurístico com tolerâncias.
+
+        A tolerância de valor efetiva de cada par é o MENOR entre
+        tolerancia_valor_percentual (% do valor da transação bancária) e
+        tolerancia_valor_absoluta_maxima (teto fixo em R$) — não mais um
+        valor absoluto derivado da média do lote, nem um percentual puro
+        (ver TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO para o porquê do
+        teto). Cada par é comparado contra sua PRÓPRIA tolerância, então
+        o resultado não muda dependendo de quais outras transações estão
+        no mesmo lote."""
         matches = []
         extrato_match_ids = set()
         contabil_match_ids = set()
-        
+
         # 1. Matching 1:1 com tolerâncias
         matches_1_1 = self._match_heuristico_1_1(
             nao_matchados_extrato, nao_matchados_contabil,
-            tolerancia_dias, tolerancia_valor, similaridade_minima
+            tolerancia_dias, tolerancia_valor_percentual, similaridade_minima,
+            tolerancia_valor_absoluta_maxima
         )
         matches.extend(matches_1_1)
-        
+
         # 2. Matching 1:N (parcelamentos)
         matches_1_n = self._match_1_n(
             nao_matchados_extrato, nao_matchados_contabil,
-            tolerancia_dias, tolerancia_valor
+            tolerancia_dias, tolerancia_valor_percentual
         )
         matches.extend(matches_1_n)
-        
+
         # 3. Matching N:1 (consolidações)
         matches_n_1 = self._match_n_1(
             nao_matchados_extrato, nao_matchados_contabil,
-            tolerancia_dias, tolerancia_valor
+            tolerancia_dias, tolerancia_valor_percentual
         )
         matches.extend(matches_n_1)
         
@@ -343,19 +383,33 @@ class DataAnalyzer:
         return matches
 
     def _match_heuristico_1_1(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
-                            tolerancia_dias: int, tolerancia_valor: float, similaridade_minima: int) -> List[Dict]:
-        """Matching heurístico 1:1"""
+                            tolerancia_dias: int, tolerancia_valor_percentual: float, similaridade_minima: int,
+                            tolerancia_valor_absoluta_maxima: float = TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO) -> List[Dict]:
+        """Matching heurístico 1:1.
+
+        A tolerância de valor é aplicada por par: o MENOR entre percentual
+        × valor da transação bancária daquele par específico e o teto
+        absoluto em R$ — não um R$ fixo calculado sobre a média de todo o
+        lote (instável — o mesmo par podia ser aceito ou rejeitado
+        dependendo de quais outras transações estavam no lote), nem um
+        percentual puro sem teto (aceitaria diferenças grandes em R$ só
+        porque a transação também é grande — ver
+        TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO)."""
         matches = []
         extrato_match_ids = set()
         contabil_match_ids = set()
-        
+
         for _, extrato_row in extrato_df.iterrows():
             if extrato_row['id'] in extrato_match_ids: continue
             valor_extrato_abs = abs(extrato_row['valor'])
-            
+            tolerancia_valor_absoluta = min(
+                valor_extrato_abs * (tolerancia_valor_percentual / 100),
+                tolerancia_valor_absoluta_maxima,
+            )
+
             contabil_candidatos = contabil_df[
                 (~contabil_df['id'].isin(contabil_match_ids)) &
-                (abs(abs(contabil_df['valor']) - valor_extrato_abs) <= tolerancia_valor)
+                (abs(abs(contabil_df['valor']) - valor_extrato_abs) <= tolerancia_valor_absoluta)
             ]
             
             for _, contabil_row in contabil_candidatos.iterrows():
@@ -370,14 +424,14 @@ class DataAnalyzer:
                 if similaridade >= similaridade_minima:
                     diff_valor = abs(abs(contabil_row['valor']) - valor_extrato_abs)
                     confianca = self._calcular_confianca_heuristica(data_diff, diff_valor, similaridade)
-                    
+
                     matches.append({
                         'tipo_match': '1:1', 'camada': 'heuristica',
                         'ids_extrato': [extrato_row['id']],
                         'ids_contabil': [contabil_row['id']],
                         'valor_total': valor_extrato_abs,
                         'confianca': confianca,
-                        'explicacao': f"Match por similaridade: {similaridade}%",
+                        'explicacao': self._justificar_match_heuristico(similaridade, diff_valor, data_diff),
                         'chave_match': f"HEUR_{extrato_row['id']}_{contabil_row['id']}"
                     })
                     extrato_match_ids.add(extrato_row['id'])
@@ -386,12 +440,12 @@ class DataAnalyzer:
         return matches
     
     def _match_1_n(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
-                  tolerancia_dias: int, tolerancia_valor: float) -> List[Dict]:
+                  tolerancia_dias: int, tolerancia_valor_percentual: float) -> List[Dict]:
         """Matching 1:N (parcelamentos)"""
         return []  # Implementação simplificada
-    
+
     def _match_n_1(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
-                  tolerancia_dias: int, tolerancia_valor: float) -> List[Dict]:
+                  tolerancia_dias: int, tolerancia_valor_percentual: float) -> List[Dict]:
         """Matching N:1 (consolidações)"""
         return []  # Implementação simplificada
     
@@ -400,6 +454,24 @@ class DataAnalyzer:
         if not texto1 or not texto2: return 0.0
         return SequenceMatcher(None, texto1.lower(), texto2.lower()).ratio() * 100
     
+    def _justificar_match_heuristico(self, similaridade: float, diff_valor: float, diff_dias: int) -> str:
+        """Monta a justificativa textual de um match heurístico.
+
+        Antes a justificativa dizia só "Match por similaridade: X%", sem
+        indicar QUANTO o valor e a data divergem entre os dois lados —
+        obrigando o contador a comparar as linhas manualmente para
+        auditar a decisão. Agora cita explicitamente as três dimensões
+        usadas no cálculo de confiança (texto, valor e data), no formato
+        "Match por similaridade: 90%; valor difere R$ 3,00; data difere 0
+        dias"."""
+        valor_str = f"{diff_valor:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
+        dia_plural = "dia" if diff_dias == 1 else "dias"
+        return (
+            f"Match por similaridade: {similaridade:.0f}%; "
+            f"valor difere R$ {valor_str}; "
+            f"data difere {diff_dias} {dia_plural}"
+        )
+
     def _calcular_confianca_heuristica(self, diff_dias: int, diff_valor: float, similaridade: float) -> float:
         """Calcula confiança do match heurístico"""
         confianca = 100
@@ -414,9 +486,9 @@ def matching_exato(extrato_df: pd.DataFrame, contabil_df: pd.DataFrame) -> Dict:
 
 def matching_heuristico(extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
                        nao_matchados_extrato: pd.DataFrame, nao_matchados_contabil: pd.DataFrame,
-                       tolerancia_dias: int, tolerancia_valor: float, similaridade_minima: int) -> Dict:
-    return DataAnalyzer().matching_heuristico(extrato_df, contabil_df, nao_matchados_extrato, 
-                                      nao_matchados_contabil, tolerancia_dias, tolerancia_valor, similaridade_minima)
+                       tolerancia_dias: int, tolerancia_valor_percentual: float, similaridade_minima: int) -> Dict:
+    return DataAnalyzer().matching_heuristico(extrato_df, contabil_df, nao_matchados_extrato,
+                                      nao_matchados_contabil, tolerancia_dias, tolerancia_valor_percentual, similaridade_minima)
 
 def matching_ia(extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
                nao_matchados_extrato: pd.DataFrame, nao_matchados_contabil: pd.DataFrame) -> Dict:
