@@ -9,7 +9,8 @@ import base64
 import modules.report_generator as report_gen
 import locale
 from difflib import SequenceMatcher
-from modules.auth_middleware import require_auth
+from modules.auth_middleware import require_auth, get_current_user
+from modules.audit_logger import get_audit_logger
 
 
 # parse_valor_moeda mudou de casa para modules/report_generator.py (é
@@ -61,6 +62,10 @@ def main():
                 print("Aviso: Não foi possível definir o locale para Português. Usando solução manual...")
 
     st.set_page_config(page_title="Relatório de Análise", page_icon="📄", layout="wide")
+
+    audit = get_audit_logger()
+    _usuario_logado = get_current_user()
+    usuario_atual = _usuario_logado['username'] if _usuario_logado else 'desconhecido'
 
     # --- Menu Customizado ---
     with st.sidebar:
@@ -531,7 +536,11 @@ def main():
                     
                     # OBTER A CONTA ANALISADA DO SESSION STATE
                     conta_analisada = st.session_state.get('conta_analisada', 'Não identificada')
-                    
+                    # "Lote" identifica QUAL conciliação foi reportada na
+                    # auditoria (conta + período), sem incluir nenhum dado
+                    # sensível — nunca senha/token.
+                    lote_auditoria = f"{conta_analisada} | {periodo_relatorio}"
+
                     # PASSAR A CONTA PARA A FUNÇÃO DE GERAR RELATÓRIO
                     pdf_path = report_gen.gerar_relatorio_analise(
                         resultados_analise=resultados_analise,
@@ -545,26 +554,56 @@ def main():
                         divergencias_tabela=divergencias_tabela,
                         conta_analisada=conta_analisada  # ✅ NOVO PARÂMETRO
                     )
-                    
+
                     # Verificar se o pdf_path é válido
                     if pdf_path is None:
-                        st.error("❌ Erro: Não foi possível gerar o caminho do arquivo PDF")
+                        motivo = "Não foi possível gerar o caminho do arquivo PDF"
+                        audit.log_report_generation(
+                            formato=formato_relatorio.lower(), user=usuario_atual, lote=lote_auditoria,
+                            success=False, error_message=motivo,
+                        )
+                        st.error(f"❌ Erro: {motivo}")
                         st.stop()
-                    
+
                     # Verificar se o arquivo foi criado
                     if not os.path.exists(pdf_path):
-                        st.error(f"❌ Erro: Arquivo PDF não foi criado em {pdf_path}")
+                        motivo = f"Arquivo PDF não foi criado em {pdf_path}"
+                        audit.log_report_generation(
+                            formato=formato_relatorio.lower(), user=usuario_atual, lote=lote_auditoria,
+                            success=False, error_message=motivo,
+                        )
+                        st.error(f"❌ Erro: {motivo}")
                         st.stop()
-                    
+
                     # Ler o PDF gerado
                     with open(pdf_path, "rb") as pdf_file:
                         pdf_bytes = pdf_file.read()
-                    
+
                     # Verificar se o conteúdo foi lido
                     if len(pdf_bytes) == 0:
-                        st.error("❌ Erro: Arquivo PDF está vazio")
+                        motivo = "Arquivo PDF está vazio"
+                        audit.log_report_generation(
+                            formato=formato_relatorio.lower(), user=usuario_atual, lote=lote_auditoria,
+                            success=False, error_message=motivo,
+                        )
+                        st.error(f"❌ Erro: {motivo}")
                         st.stop()
-                    
+
+                    audit.log_report_generation(
+                        formato=formato_relatorio.lower(),
+                        user=usuario_atual,
+                        lote=lote_auditoria,
+                        success=True,
+                        included_matches=len(resultados_analise.get('matches', [])),
+                        included_exceptions=len(resultados_analise.get('excecoes', [])),
+                        report_parameters={
+                            'incluir_detalhes_matches': incluir_detalhes_matches,
+                            'incluir_divergencias': incluir_divergencias,
+                            'incluir_estatisticas': incluir_estatisticas,
+                            'incluir_recomendacoes': incluir_recomendacoes,
+                        },
+                    )
+
                     # Criar download link
                     b64_pdf = base64.b64encode(pdf_bytes).decode()
                     nome_arquivo = f"relatorio_{formato_relatorio.lower()}_{conta_analisada}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
@@ -581,6 +620,13 @@ def main():
                     st.markdown(pdf_display, unsafe_allow_html=True)
                     
                 except Exception as e:
+                    audit.log_report_generation(
+                        formato=formato_relatorio.lower(),
+                        user=usuario_atual,
+                        lote=f"{st.session_state.get('conta_analisada', 'Não identificada')} | {periodo_relatorio}",
+                        success=False,
+                        error_message=str(e),
+                    )
                     st.error(f"❌ Erro ao gerar relatório: {str(e)}")
 
     # Navegação

@@ -156,3 +156,87 @@ def test_rotacao_nao_quebra_leitura_apos_reinicio(tmp_path):
 
     assert len(trail) == 1
     assert trail.iloc[0]["user"] == "bruno"
+
+
+# --- log_report_generation: sucesso/falha, usuário, lote, formato (CT-AUD-01) ---
+# O método já existia mas nunca era chamado por pages/gerar_relatorio.py
+# — a geração de relatório não tinha nenhum evento de auditoria.
+
+def test_log_report_generation_sucesso_registra_lote_formato_e_contagens(tmp_path):
+    db_path = str(tmp_path / "audit.db")
+    logger = AuditLogger(db_path=db_path)
+
+    logger.log_report_generation(
+        formato="completo",
+        user="qa_user",
+        lote="1234490 | 15/06/2025 a 14/07/2025",
+        success=True,
+        included_matches=14,
+        included_exceptions=8,
+        report_parameters={"incluir_estatisticas": True},
+    )
+
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT action, user, severity, details FROM audit_log WHERE action = 'REPORT_GENERATION'"
+    ).fetchone()
+    conn.close()
+
+    assert row is not None
+    action, user, severity, details_json = row
+    assert user == "qa_user"
+    assert severity == "INFO"
+    import json
+    details = json.loads(details_json)
+    assert details["formato"] == "completo"
+    assert details["lote"] == "1234490 | 15/06/2025 a 14/07/2025"
+    assert details["success"] is True
+    assert details["included_matches"] == 14
+    assert details["included_exceptions"] == 8
+
+
+def test_log_report_generation_falha_registra_severidade_erro_e_motivo(tmp_path):
+    db_path = str(tmp_path / "audit.db")
+    logger = AuditLogger(db_path=db_path)
+
+    logger.log_report_generation(
+        formato="resumido",
+        user="qa_user",
+        lote="1234490 | 15/06/2025 a 14/07/2025",
+        success=False,
+        error_message="Arquivo PDF está vazio",
+    )
+
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT severity, details FROM audit_log WHERE action = 'REPORT_GENERATION'"
+    ).fetchone()
+    conn.close()
+
+    assert row is not None
+    severity, details_json = row
+    assert severity == "ERROR"
+    import json
+    details = json.loads(details_json)
+    assert details["success"] is False
+    assert details["error_message"] == "Arquivo PDF está vazio"
+
+
+def test_log_report_generation_nao_registra_segredos(tmp_path):
+    """O detalhe deve conter só formato/lote/contagens/erro — nunca
+    senha, token ou payload de sessão."""
+    db_path = str(tmp_path / "audit.db")
+    logger = AuditLogger(db_path=db_path)
+
+    logger.log_report_generation(
+        formato="completo", user="qa_user", lote="1234490 | período X", success=True,
+    )
+
+    conn = sqlite3.connect(db_path)
+    details_json = conn.execute(
+        "SELECT details FROM audit_log WHERE action = 'REPORT_GENERATION'"
+    ).fetchone()[0]
+    conn.close()
+
+    for termo_proibido in ("senha", "password", "token", "secret"):
+        assert termo_proibido not in details_json.lower()
