@@ -81,7 +81,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** A quinta falha ativa o bloqueio; a sexta tentativa é recusada com mensagem de muitas tentativas e indicação aproximada de quinze minutos; após o período, o identificador pode tentar novamente. O bloqueio não deve confirmar se a conta existe.
 
-**Status de execução:** `NAO EXECUTADO` — o anexo informa que somente duas falhas foram tentadas e que o bloqueio de quinze minutos foi dispensado.
+**Status de execução:** `NAO EXECUTADO` — parcial no E2E fase 2: o bloqueio imediato após 5 falhas foi observado (6ª tentativa: "Tente novamente em 14 min"; bloqueio vale para novo contexto; outro identificador não afetado), mas a liberação após 15 minutos não foi aguardada — caso de tempo real, aguarda autorização humana explícita.
 
 **Confirmação humana obrigatória:** Não executar este caso até o responsável autorizar explicitamente a espera de tempo real.
 
@@ -104,7 +104,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O primeiro login é aceito; o sal deixa de ser nulo; o hash é substituído por PBKDF2; a senha antiga continua funcionando e não é exibida na interface. A auditoria deve registrar a migração.
 
-**Status de execução:** `NAO EXECUTADO` — o anexo registra 63 testes unitários no conjunto, mas não identifica evidência de execução deste fluxo específico.
+**Status de execução:** `PASS` — E2E fase 2 (local): login legado migra de forma transparente (1ª e 2ª tentativas OK), o hash final fica em PBKDF2+salt e o evento de migração aparece na auditoria.
 
 ### CT-AUTH-05 — Expiração e invalidação de sessão
 
@@ -122,7 +122,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** A sessão não é aceita depois da expiração; a página exibe `Acesso não autorizado. Faça login para acessar esta página` e oferece retorno ao login. Nenhum dado protegido é mostrado.
 
-**Status de execução:** `NAO EXECUTADO` — a expiração de sessão foi explicitamente dispensada no anexo.
+**Status de execução:** `NAO EXECUTADO` — permanece sem execução: caso de tempo real (expiração de sessão), sem autorização humana nesta rodada.
 
 **Confirmação humana obrigatória:** Não executar este caso até autorização explícita para esperar o prazo real.
 
@@ -142,7 +142,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O token antigo é recusado no servidor, as páginas protegidas não carregam e há evidência persistente de revogação ou invalidação. Um novo login deve criar uma sessão distinta.
 
-**Status de execução:** `NAO EXECUTADO` — o anexo aponta JWT de 24 horas sem revogação como risco residual.
+**Status de execução:** `PASS` — E2E fase 2 (local): logout grava linha em `revoked_tokens` (jti) e volta à tela de login; o token vive em `st.session_state` do servidor (sem cookie), e a revogação foi confirmida na fonte.
 
 ## Autorização e páginas protegidas
 
@@ -201,7 +201,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O papel comum só acessa as páginas autorizadas; a sessão de usuário desativado é invalidada na revalidação; novo login da conta desativada é recusado sem conceder privilégio administrativo.
 
-**Status de execução:** `NAO EXECUTADO` — não há matriz de papéis nem evidência E2E deste cenário nos anexos.
+**Status de execução:** `PASS` — E2E fase 2 (local): usuário comum não vê "Gerenciar Usuários" e acessa as 3 páginas; conta desativada é bloqueada no login e a sessão ativa é invalidada na reativacão; reativação restaura o acesso. Nota: não existe RBAC por página além de admin/comum.
 
 ## Importação e validação de arquivos
 
@@ -255,7 +255,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O sistema processa somente o formato suportado e informa claramente sucesso, contagem e dados convertidos; em falha, mostra erro controlado e não inventa transações. O limite de páginas deve ser aplicado.
 
-**Status de execução:** `NAO EXECUTADO` — não há PDF de fixture nem resultado E2E deste formato no anexo.
+**Status de execução:** `PASS` — E2E fase 2: PDF sintético carrega 2 transações; PDF de 201 páginas é rejeitado ("excede o limite de 200").
 
 ### CT-IMP-04 — Importação de CNAB
 
@@ -273,7 +273,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O arquivo dentro do limite é processado conforme o layout; o arquivo acima do limite é recusado antes de consumir recursos excessivos, com erro compreensível e sem resultado parcial.
 
-**Status de execução:** `NAO EXECUTADO` — o anexo lista o arquivo, mas não registra execução de CNAB nem limite de páginas.
+**Status de execução:** `PASS` — E2E fase 2: `retorno_cnab240.ret` carrega 8 transações; CNAB acima de 50000 linhas é rejeitado com mensagem clara.
 
 ### CT-IMP-05 — Arquivo corrompido ou incompatível
 
@@ -292,7 +292,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O processamento falha de forma controlada, informa o nome/tipo do problema, não cria transações fictícias e registra falha na auditoria quando aplicável.
 
-**Status de execução:** `NAO EXECUTADO` — não há resultado E2E deste arquivo no anexo.
+**Status de execução:** `PASS` — E2E fase 2: fixture corrompida falha de forma controlada ("Erro ao processar"), sem ser aceita como extrato válido.
 
 ### CT-IMP-06 — Arquivo acima do limite de tamanho
 
@@ -309,7 +309,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O arquivo é rejeitado com mensagem de tamanho excedido, sem travar a aplicação e sem gravar dados parciais.
 
-**Status de execução:** `NAO EXECUTADO` — os anexos mencionam limite de 10 MB, mas não registram execução de arquivo acima do limite.
+**Status de execução:** `PASS` — E2E fase 2: CSV de 11MB rejeitado (limite de 10MB) com mensagem informando o tamanho e o limite.
 
 ## Conciliação
 
@@ -349,7 +349,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** Os três pares são identificados como heurísticos com percentuais de 70%, 75% e 90%; cada justificativa informa diferenças concretas, por exemplo `valor difere R$ 3,00; data difere 0 dias`. Não deve haver justificativa genérica que omita essas diferenças.
 
-**Status de execução:** `FAIL` — os percentuais e pares foram observados, mas o anexo informa que as justificativas só citavam similaridade de texto.
+**Status de execução:** `FAIL` — E2E fase 2 (local): as justificativas agora citam diferença de valor e de data (Parte A), mas somente 2 de 3 pares foram aceitos (ágüa e uber; dell rejeitado pela tolerância percentual fixa de 2%); confianças 90/95.
 
 ### CT-CON-03 — Similaridade sugerida sem aceitação indevida
 
@@ -404,7 +404,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** A decisão de IA é identificada separadamente, contém confiança e justificativa; indisponibilidade não aceita pares automaticamente nem perde os dados do lote.
 
-**Status de execução:** `NAO EXECUTADO` — os anexos não apresentam resultado de uma execução de IA.
+**Status de execução:** `PASS` — E2E fase 2 (nível módulo): par orquestrado casa na camada IA com confiança 73,2%; o modo determinístico não usa rede externa.
 
 ### CT-CON-06 — Divergências, contagens e somas no cenário B × C
 
@@ -423,7 +423,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** A tela mostra 14 correspondências, cobertura de 77,8%, quatro divergências bancárias e quatro contábeis; as somas são R$ 1.386,22 e R$ 1.538,93, respectivamente.
 
-**Status de execução:** `PASS` — o E2E 2 registrou esses totais, contagens e cobertura.
+**Status de execução:** `FAIL` — build local (Parte A, tolerância fixa 2%): 12 matches, 66,7% de cobertura e 12 itens em divergência, divergindo da referência aprovada (14 / 77,8% / 8). Publicada (`main`, testada em 24/09): 14 / 77,8% / 8, conforme a referência.
 
 ## Relatório e PDF
 
@@ -443,7 +443,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** A tela exibe período de 15/06/2025 a 14/07/2025, 18/18, 77,8%, oito itens divergentes no total e os valores separados R$ 1.386,22 e R$ 1.538,93.
 
-**Status de execução:** `PASS` — o E2E 1/2 confirma as métricas e o E2E 2 confirma as somas na tela.
+**Status de execução:** `FAIL` — local: cobertura 66,7%, 12 divergências e somas na tela R$ 1.449,42 / R$ 1.603,13 (formato EN `1,449.42`/`1,603.13`), fora da referência; publicada (`main`, 24/09): 77,8%, 8 divergências e somas `1,386.22`/`1,538.93`, conforme a referência. Período da tela local: 15/06/2025 a 16/07/2025.
 
 ### CT-REL-02 — PDF com período real dos dados
 
@@ -460,7 +460,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O campo mostra `15/06/2025 a 14/07/2025` ou formato equivalente, sem usar `September/2026` ou outro mês de geração.
 
-**Status de execução:** `FAIL` — o E2E 1 observou `September/2026`, mês de geração.
+**Status de execução:** `PASS` — local (Parte A): o PDF imprime "Período: 15/06/2025 a 16/07/2025", sem mês de geração (o fim fica 2 dias após a referência 14/07 por incluir lançamentos contábeis). Publicada (`main`, 24/09): ainda "September/2026" — bug da fase 1 presente, esperado até merge+deploy da Parte A.
 
 ### CT-REL-03 — PDF com soma monetária das divergências
 
@@ -477,7 +477,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O PDF imprime explicitamente as duas somas e as contagens; o leitor não precisa somar manualmente as linhas.
 
-**Status de execução:** `FAIL` — o E2E 2 informa que a soma literal não era impressa; apenas as contagens apareciam, embora as linhas permitissem derivar os valores.
+**Status de execução:** `FAIL` — local: a soma literal passou a ser impressa no PDF, porém no valor R$ 1.449,42 / R$ 1.603,13 com contagens 6+6, e não na referência R$ 1.386,22 / R$ 1.538,93 com 4+4 (efeito da tolerância fixa de 2%). Publicada (`main`, 24/09): continua sem somas no PDF (bug da fase 1) com contagens 4+4.
 
 ### CT-REL-04 — Justificativa de match heurístico no PDF/relatório
 
@@ -494,7 +494,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** Cada justificativa declara similaridade, diferença monetária e diferença de data; os números correspondem às transações apresentadas.
 
-**Status de execução:** `FAIL` — o anexo registra que a justificativa existente só menciona similaridade textual.
+**Status de execução:** `FAIL` — local: formato rico ("valor difere"/"data difere") presente, porém apenas 1 match heurístico impresso no PDF (< 3 esperados) pela nova tolerância; publicada (`main`, 24/09): 3 matches heurísticos apenas com similaridade textual, sem diferença de valor/data.
 
 ## Auditoria, persistência e riscos residuais
 
@@ -516,7 +516,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** Há eventos para falha/sucesso de login, upload, processamento, matching e geração de relatório; cada evento tem timestamp, usuário/sistema e detalhes úteis. Senha, JWT e outros segredos não aparecem.
 
-**Status de execução:** `NAO EXECUTADO` — o anexo descreve a auditoria como melhoria da fase 1, mas não fornece uma matriz E2E desses eventos.
+**Status de execução:** `FAIL` — E2E fase 2: eventos de login (falha/ok), logout, upload, processamento, matching, migração de senha e bloqueio de rate limit são registrados com usuário e sem segredos; falta o evento de geração de relatório (`log_report_generation` existe, mas `pages/` nunca o chama).
 
 ### CT-AUD-02 — Persistência após reinício
 
@@ -534,7 +534,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O evento anterior permanece legível após o reinício; o novo evento recebe identificador próprio e é acrescentado sem alterar os registros antigos.
 
-**Status de execução:** `NAO EXECUTADO` — não há evidência específica de reinício no anexo.
+**Status de execução:** `PASS` — E2E fase 2: após reinício do servidor, os 150 eventos permanecem legíveis com o mesmo SHA do prefixo e o novo evento é acrescentado como 151, sem reescrever os antigos.
 
 ### CT-AUD-03 — Rotação do log por tamanho/idade
 
@@ -552,7 +552,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** A rotação é previsível, não interrompe o logging e preserva o histórico conforme retenção aprovada; nenhum evento é sobrescrito sem regra documentada.
 
-**Status de execução:** `NAO EXECUTADO` — o anexo informa ausência de rotação.
+**Status de execução:** `PASS` — E2E fase 2: a rotação por tamanho renomeia o arquivo ativo com carimbo de tempo, preserva o histórico legível e mantém os novos eventos no arquivo novo.
 
 ### CT-SEC-01 — Chave secreta e sobrevivência de sessão entre reinícios
 
@@ -570,7 +570,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** Com chave definida, a sessão permanece verificável conforme o desenho do sistema; sem chave, a aplicação gera chave aleatória por execução e invalida sessões após reinício, exibindo/logando a limitação sem usar segredo fixo conhecido.
 
-**Status de execução:** `NAO EXECUTADO` — o anexo recomenda configurar a variável em produção, mas não registra este teste.
+**Status de execução:** `NAO EXECUTADO` — parcial no E2E fase 2: o warning é exibido sem `CONCILIACAO_SECRET_KEY` e a assinatura de token é válida/inválida conforme a chave; a sobrevivência da sessão entre processos A→B (mesma chave) não foi executada.
 
 ### CT-SEC-02 — Limite por identificador e ausência de sinal confiável de origem
 
@@ -587,7 +587,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** O bloqueio por identificador funciona; qualquer limitação adicional só é considerada se houver sinal confiável e estável. Não inventar um mecanismo baseado em IP/cabeçalho não garantido pelo Streamlit.
 
-**Status de execução:** `NAO EXECUTADO` — o anexo apenas relata que o rate limit é por identificador.
+**Status de execução:** `PASS` — E2E fase 2: 5 falhas de `conta-teste` bloqueiam o identificador (`locked_until` persistente), o bloqueio vale para novo contexto e outro identificador não é afetado; a ausência de sinal confiável de origem no Streamlit foi avaliada e documentada como limitação (commit `4bbfb85`), sem mecanismo inventado.
 
 ### CT-SEC-03 — Timeout, allowlist e redirects do CloudImporter
 
@@ -606,7 +606,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** Apenas domínio permitido é aceito; redirects são limitados e revalidados; timeout encerra a operação com erro controlado; nenhum conteúdo de domínio proibido é baixado.
 
-**Status de execução:** `NAO EXECUTADO` — a ausência desses controles é risco residual relatado.
+**Status de execução:** `PASS` — E2E fase 2 no nível do módulo (CloudImporter é apenas stub na UI): allowlist por hostname aceita os domínios padrão e rejeita domínio malicioso/local; timeout e cadeia acima de 3 redirects terminam em erro controlado; tipos desconhecidos não disparam request.
 
 ### CT-SEC-04 — Limite de páginas de PDF/CNAB
 
@@ -624,7 +624,7 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** Arquivos dentro do limite são processados; arquivos acima são recusados antes do processamento completo, com mensagem clara e sem travamento.
 
-**Status de execução:** `NAO EXECUTADO` — o anexo identifica a ausência do limite, sem evidência de reteste.
+**Status de execução:** `PASS` — E2E fase 2: PDF de 201 páginas e CNAB acima de 50000 linhas são rejeitados com mensagem clara; as versões dentro do limite (PDF sintético, `retorno_cnab240.ret`) processam normalmente.
 
 ### CT-SEC-05 — Rotação de `audit_log.db` e integridade append-only
 
@@ -641,13 +641,13 @@ Este documento define casos executáveis para a fase 2 do Sistema de Conciliaç�
 
 **Resultado esperado:** Eventos existentes permanecem imutáveis no histórico retido; a aplicação só acrescenta registros; qualquer expurgo segue prazo e regra documentados.
 
-**Status de execução:** `NAO EXECUTADO` — rotação foi listada como pendência.
+**Status de execução:** `PASS` — E2E fase 2: a fonte `audit_logger` não contém UPDATE/DELETE; após a rotação os eventos antigos permanecem legíveis e imutáveis e a base nova contém apenas eventos novos.
 
 ## Divergências, riscos e decisões pendentes
 
-- Os resultados dos anexos são de execução local. A versão publicada em `concbanctest.streamlit.app` não refletia as correções no momento do E2E 1; portanto, nenhum caso publicado recebe status sem novo teste após deploy.
-- Os defeitos confirmados são: período incorreto no PDF; ausência de soma literal no PDF; justificativa heurística sem diferença de valor/data.
-- O cenário B × C deve continuar sendo a fixture de regressão: 18 × 18, 11 exatos, 3 heurísticos aceitos, 2 similaridades sugeridas, 4 divergências bancárias e 4 contábeis.
-- A tolerância derivada da média do lote é risco de reprodutibilidade e deve ser transformada em configuração fixa/documentada antes de aceitar novos resultados como definitivos.
-- Logout sem revogação, falta de limites de páginas, ausência de timeout/allowlist/limite de redirects e falta de rotação de auditoria permanecem riscos até teste e implementação correspondentes.
+- Execução de24/09/2026: pública (`concbanctest.streamlit.app`, `origin/main` = fase 1) e local (build `5e83698` com os8 commits da Parte A) foram testadas com o mesmo fluxo B×C; diferenças registradas nesta issue e nos artefatos `e2e_artifacts/` do revisor.
+- Defeitos da fase1 confirmados NA PUBLICADA (período `September/2026` no PDF, ausência de soma literal no PDF, justificativa heurística só com similaridade) e corrigidos NO BUILD LOCAL (período real; soma literal impressa; justificativa com diferença de valor/data).
+- O cenário B×C divergiu entre os dois builds: publicada14 matches / 77,8% /8 divergências (referência); local12 /66,7% /12 — a tolerância fixa de2% rejeita pares que a média do lote aceitava (dell), e as somas da tela/PDF viram R$1.449,42 / R$1.603,13. Os itens2 e4 da Parte A conflitam como executados: a soma pedida (R$1.386,22 / R$1.538,93) não é alcançável com a tolerância atual — decidir se revisa a tolerância ou se atualiza a referência.
+- A tolerância agora é fixa e documentada (item4 implementado); os valores de referência do capítulo de divergências precisam ser redefinidos ou a tolerância recalibrada antes de nova aprovação de resultado.
+- Itens5a–5e testados localmente (revogação no logout, limites de páginas, CloudImporter endurecido, rotação de `audit_log.db`, remoção de `modules/user_manager.py`); rate limit segue só por identificador, com a limitação documentada. Nada disso está publicado até o merge no `main`.
 - Qualquer execução de CT-AUTH-03 ou CT-AUTH-05 exige confirmação humana explícita antes da espera de tempo real; os demais casos podem ser executados sem essa autorização adicional.
