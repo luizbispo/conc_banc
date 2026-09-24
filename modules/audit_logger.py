@@ -262,22 +262,43 @@ class AuditLogger:
         )
     
     def log_report_generation(self,
-                             report_type: str,
+                             formato: str,
                              user: str,
-                             included_matches: int,
-                             included_exceptions: int,
-                             report_parameters: Dict[str, Any]) -> str:
-        """Log de geração de relatório"""
+                             lote: str,
+                             success: bool = True,
+                             included_matches: int = 0,
+                             included_exceptions: int = 0,
+                             error_message: Optional[str] = None,
+                             report_parameters: Dict[str, Any] = None) -> str:
+        """Log de geração de relatório PDF (sucesso ou falha).
+
+        Este método já existia mas nunca era chamado por
+        pages/gerar_relatorio.py — CT-AUD-01 (issue XCRE-42) apontou a
+        ausência do evento de relatório na auditoria. lote identifica QUAL
+        conciliação foi reportada (ex.: conta analisada + período), para
+        distinguir gerações de relatórios diferentes sem expor dados
+        sensíveis; nenhum segredo (senha, token) é aceito nos campos
+        deste método — quem chama é responsável por não passar nenhum."""
+        descricao = (
+            f"Relatório {formato} gerado para o lote '{lote}': "
+            f"{included_matches} matches, {included_exceptions} exceções"
+            if success else
+            f"Falha ao gerar relatório {formato} para o lote '{lote}': {error_message}"
+        )
         return self.log_action(
             action=AuditAction.REPORT_GENERATION,
             user=user,
-            description=f"Relatório {report_type} gerado: {included_matches} matches, {included_exceptions} exceções",
+            description=descricao,
             details={
-                'report_type': report_type,
+                'formato': formato,
+                'lote': lote,
+                'success': success,
                 'included_matches': included_matches,
                 'included_exceptions': included_exceptions,
-                'report_parameters': report_parameters
-            }
+                'error_message': error_message,
+                'report_parameters': report_parameters or {},
+            },
+            severity=AuditSeverity.ERROR if not success else AuditSeverity.INFO,
         )
     
     def log_config_change(self,

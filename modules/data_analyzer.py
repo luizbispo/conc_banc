@@ -19,13 +19,32 @@ except ImportError:
         return {'matches': [], 'matches_semanticos': 0, 'matches_temporais': 0, 
                 'matches_agrupados': 0, 'matches_entidades': 0}
 
-# Tolerância padrão de valor para o matching heurístico, como percentual
-# do valor de cada transação bancária (não mais derivada da média do
-# lote — ver histórico de correção em pages/analise_dados.py). Documentado
-# aqui como a fonte única de verdade do padrão; o valor pode ser
-# sobreposto por chamador (ex.: o slider "Tolerância de Valor (%)" da
-# página de análise).
-TOLERANCIA_VALOR_PERCENTUAL_PADRAO = 2.0
+# Tolerância padrão de valor para o matching heurístico: MENOR valor entre
+# um percentual do valor da transação bancária e um teto absoluto em R$
+# (não mais derivada da média do lote — ver histórico de correção em
+# pages/analise_dados.py). Documentado aqui como a fonte única de verdade
+# do padrão; ambos os valores podem ser sobrepostos por chamador (ex.: o
+# slider "Tolerância de Valor (%)" da página de análise).
+#
+# Por que os DOIS limites, e não só um percentual: um percentual sozinho
+# trata igualmente uma diferença de R$2,00 numa transação de R$22,90
+# (8,7%) e uma diferença de R$100,00 numa transação de R$1.300,00
+# (7,7%) — mas a segunda é uma divergência muito mais material em termos
+# absolutos, e o cenário de referência B×C (ver
+# tests/test_data_analyzer.py::test_tolerancia_reproduz_referencia_b_x_c)
+# exige aceitar a primeira como match heurístico (par "Dell") e manter a
+# segunda como mera sugestão, não como correspondência aceita (par
+# "Pagamento recebido"). O teto absoluto é o que separa os dois casos; o
+# percentual sozinho não consegue.
+#
+# Valores escolhidos para satisfazer TODOS os pares de referência do
+# cenário B×C ao mesmo tempo (ver teste de sensibilidade acima):
+# aceitar Águia Branca (diferença R$3,00 / 7,44%) e Dell (R$2,00 / 8,73%);
+# rejeitar Uber* Trip com 24% (R$5,00 / 24,04%) e Pagamento recebido
+# (R$100,00 / 7,69% — dentro do percentual, mas muito acima do teto
+# absoluto).
+TOLERANCIA_VALOR_PERCENTUAL_PADRAO = 10.0
+TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO = 5.00  # R$
 
 
 class DataAnalyzer:
@@ -89,14 +108,18 @@ class DataAnalyzer:
                           nao_matchados_extrato: pd.DataFrame, nao_matchados_contabil: pd.DataFrame,
                           tolerancia_dias: int = 2,
                           tolerancia_valor_percentual: float = TOLERANCIA_VALOR_PERCENTUAL_PADRAO,
-                          similaridade_minima: int = 80) -> Dict:
+                          similaridade_minima: int = 80,
+                          tolerancia_valor_absoluta_maxima: float = TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO) -> Dict:
         """Camada 2: Matching heurístico com tolerâncias.
 
-        tolerancia_valor_percentual é um percentual (não mais um valor
-        absoluto em R$ derivado da média do lote): cada par é comparado
-        contra sua PRÓPRIA tolerância (percentual × valor da transação
-        bancária), então o resultado não muda dependendo de quais outras
-        transações estão no mesmo lote."""
+        A tolerância de valor efetiva de cada par é o MENOR entre
+        tolerancia_valor_percentual (% do valor da transação bancária) e
+        tolerancia_valor_absoluta_maxima (teto fixo em R$) — não mais um
+        valor absoluto derivado da média do lote, nem um percentual puro
+        (ver TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO para o porquê do
+        teto). Cada par é comparado contra sua PRÓPRIA tolerância, então
+        o resultado não muda dependendo de quais outras transações estão
+        no mesmo lote."""
         matches = []
         extrato_match_ids = set()
         contabil_match_ids = set()
@@ -104,7 +127,8 @@ class DataAnalyzer:
         # 1. Matching 1:1 com tolerâncias
         matches_1_1 = self._match_heuristico_1_1(
             nao_matchados_extrato, nao_matchados_contabil,
-            tolerancia_dias, tolerancia_valor_percentual, similaridade_minima
+            tolerancia_dias, tolerancia_valor_percentual, similaridade_minima,
+            tolerancia_valor_absoluta_maxima
         )
         matches.extend(matches_1_1)
 
@@ -359,14 +383,18 @@ class DataAnalyzer:
         return matches
 
     def _match_heuristico_1_1(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
-                            tolerancia_dias: int, tolerancia_valor_percentual: float, similaridade_minima: int) -> List[Dict]:
+                            tolerancia_dias: int, tolerancia_valor_percentual: float, similaridade_minima: int,
+                            tolerancia_valor_absoluta_maxima: float = TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO) -> List[Dict]:
         """Matching heurístico 1:1.
 
-        A tolerância de valor é aplicada por par: percentual × valor da
-        transação bancária daquele par específico, não um R$ fixo
-        calculado sobre a média de todo o lote (instável — o mesmo par
-        podia ser aceito ou rejeitado dependendo de quais outras
-        transações estavam no lote)."""
+        A tolerância de valor é aplicada por par: o MENOR entre percentual
+        × valor da transação bancária daquele par específico e o teto
+        absoluto em R$ — não um R$ fixo calculado sobre a média de todo o
+        lote (instável — o mesmo par podia ser aceito ou rejeitado
+        dependendo de quais outras transações estavam no lote), nem um
+        percentual puro sem teto (aceitaria diferenças grandes em R$ só
+        porque a transação também é grande — ver
+        TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO)."""
         matches = []
         extrato_match_ids = set()
         contabil_match_ids = set()
@@ -374,7 +402,10 @@ class DataAnalyzer:
         for _, extrato_row in extrato_df.iterrows():
             if extrato_row['id'] in extrato_match_ids: continue
             valor_extrato_abs = abs(extrato_row['valor'])
-            tolerancia_valor_absoluta = valor_extrato_abs * (tolerancia_valor_percentual / 100)
+            tolerancia_valor_absoluta = min(
+                valor_extrato_abs * (tolerancia_valor_percentual / 100),
+                tolerancia_valor_absoluta_maxima,
+            )
 
             contabil_candidatos = contabil_df[
                 (~contabil_df['id'].isin(contabil_match_ids)) &
