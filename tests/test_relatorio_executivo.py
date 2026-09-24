@@ -147,7 +147,7 @@ def test_golden_b_x_c_pdf_contem_os_valores_do_modelo(pdf_executivo_b_x_c):
         "77,8", "61,1",
         "-140,88", "6,67", "147,55",
         "1.213,78", "1.362,33",
-        "3,00 a menos", "2,00 a mais",
+        "3,00 a mais", "2,00 a menos",
     ]
     for valor in valores_esperados:
         assert valor in texto, f"valor {valor!r} não encontrado no PDF Executivo"

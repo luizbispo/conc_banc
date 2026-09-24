@@ -114,6 +114,24 @@ def _linha_match_exato(match: Dict, extrato_df: pd.DataFrame, contabil_df: pd.Da
     }
 
 
+def _rotulo_diferenca_por_magnitude(valor_contabil: float, valor_extrato: float) -> "tuple[str, float]":
+    """Rótulo de diferença de valor por MAGNITUDE (issue XCRE-44, item A1):
+    compara |contábil| com |extrato|, não o sinal algébrico
+    (contábil - extrato). Um débito maior no contábil (ex.: -43,30 contra
+    -40,30 no extrato) é "a mais no contábil", nunca "a menos" — o sinal
+    algébrico sozinho inverte esse resultado para despesas. Vale para
+    débitos e créditos. A diferença de DATA é sempre mostrada à parte,
+    nunca misturada a este rótulo."""
+    diferenca_magnitude = round(abs(valor_contabil) - abs(valor_extrato), 2)
+    if diferenca_magnitude > 0:
+        rotulo = f"{_fmt_valor(diferenca_magnitude)} a mais no contábil"
+    elif diferenca_magnitude < 0:
+        rotulo = f"{_fmt_valor(abs(diferenca_magnitude))} a menos no contábil"
+    else:
+        rotulo = "Sem diferença de valor"
+    return rotulo, diferenca_magnitude
+
+
 def _linha_match_similaridade(match: Dict, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame) -> Dict:
     ext = extrato_df[extrato_df["id"].isin(match.get("ids_extrato", []))]
     cont = contabil_df[contabil_df["id"].isin(match.get("ids_contabil", []))]
@@ -125,12 +143,7 @@ def _linha_match_similaridade(match: Dict, extrato_df: pd.DataFrame, contabil_df
     valor_extrato = float(ext["valor"].sum()) if len(ext) else 0.0
     valor_contabil = float(cont["valor"].sum()) if len(cont) else 0.0
     diferenca = round(valor_contabil - valor_extrato, 2)
-    if diferenca > 0:
-        rotulo_diferenca = f"{_fmt_valor(abs(diferenca))} a mais no contábil"
-    elif diferenca < 0:
-        rotulo_diferenca = f"{_fmt_valor(abs(diferenca))} a menos no contábil"
-    else:
-        rotulo_diferenca = "Sem diferença de valor"
+    rotulo_diferenca, diferenca_magnitude = _rotulo_diferenca_por_magnitude(valor_contabil, valor_extrato)
     return {
         "descricao": descricao,
         "data_extrato": _fmt_data(data_extrato),
@@ -142,6 +155,7 @@ def _linha_match_similaridade(match: Dict, extrato_df: pd.DataFrame, contabil_df
         "diferenca": diferenca,
         "diferenca_fmt": _fmt_valor(diferenca),
         "rotulo_diferenca": rotulo_diferenca,
+        "diferenca_magnitude": diferenca_magnitude,
         "confianca": match.get("confianca", 0),
     }
 

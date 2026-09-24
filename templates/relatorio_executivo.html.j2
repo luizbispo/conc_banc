@@ -203,7 +203,7 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
           <td>{{ linha.data_extrato }} / {{ linha.data_contabil }}</td>
           <td class="num {{ 'neg' if linha.valor_extrato < 0 else '' }}">{{ linha.valor_extrato_fmt }}</td>
           <td class="num {{ 'neg' if linha.valor_contabil < 0 else '' }}">{{ linha.valor_contabil_fmt }}</td>
-          <td><span class="tag {{ 'c' if linha.diferenca > 0 else ('w' if linha.diferenca < 0 else '') }}">{{ linha.rotulo_diferenca }}</span></td>
+          <td><span class="tag {{ 'c' if linha.diferenca_magnitude > 0 else ('w' if linha.diferenca_magnitude < 0 else '') }}">{{ linha.rotulo_diferenca }}</span></td>
           <td class="num">{{ linha.confianca|round|int }}%</td>
         </tr>
         {% endfor %}
