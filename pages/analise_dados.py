@@ -286,12 +286,18 @@ def main():
         # REMOVIDO: Tolerância de Data e Similaridade Mínima
         # ADICIONADO: Tolerância de Percentual
         tolerancia_percentual = st.slider(
-            "Tolerância de Valor (%)", 
-            min_value=0.0, 
-            max_value=10.0, 
-            value=2.0, 
+            "Tolerância de Valor (%)",
+            min_value=0.0,
+            max_value=20.0,
+            value=analyzer.TOLERANCIA_VALOR_PERCENTUAL_PADRAO,  # 10.0% — ver módulo para o porquê
             step=0.1,
-            help="Diferença percentual máxima permitida entre valores para considerar como correspondência"
+            help=(
+                "Diferença percentual máxima permitida entre valores para considerar como "
+                "correspondência. Some-se sempre a um teto absoluto fixo de "
+                f"R$ {analyzer.TOLERANCIA_VALOR_ABSOLUTA_MAXIMA_PADRAO:.2f} "
+                "(o MENOR dos dois vale) — evita aceitar diferenças grandes em R$ só "
+                "porque a transação também é grande."
+            ),
         )
         
         st.info("ℹ️ **Configurações automáticas:**")
