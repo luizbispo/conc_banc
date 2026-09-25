@@ -8,14 +8,16 @@ colunas obrigatórias; tests/test_importacao_limites.py: MAX_PDF_PAGINAS/
 MAX_CNAB_LINHAS; tests/test_cache_parsing.py: cache por hash de bytes)
 com os ângulos pedidos nesta rodada que ainda não tinham teste:
 
-1. CSV com MUITAS linhas e com colunas/linha GIGANTES: não há (nem esta
-   rodada cria) um limite separado de linhas/colunas para CSV — o teto
-   existente é `MAX_FILE_SIZE_BYTES` (10 MiB, já testado em
-   test_validacao_entrada_ofx_csv.py). Os testes abaixo DERIVAM desse
-   limite já configurado (ficam abaixo dele) e confirmam que o
-   processamento é limitado pelo tamanho em bytes, não trava, e não
-   truncava dado nenhum. Isso documenta a ausência de um teto dedicado
-   de linhas/colunas como comportamento atual, não como lacuna nova.
+1. CSV com MUITAS linhas e com colunas/linha GIGANTES: nesta rodada (Fase
+   5b) não havia limite separado de linhas/colunas para CSV além de
+   `MAX_FILE_SIZE_BYTES` (10 MiB) — os testes abaixo documentavam isso
+   como comportamento então-atual. ATUALIZADO pela revisão de segurança
+   dedicada (SEC-R-03, XCRE-52): agora existem tetos próprios de linhas,
+   colunas e caracteres por campo (`LIMITE_CSV_MAX_LINHAS`,
+   `LIMITE_CSV_MAX_COLUNAS`, `LIMITE_CSV_MAX_CARACTERES_CAMPO`), e os
+   testes de colunas/célula gigante abaixo foram ajustados para operar
+   DENTRO desses novos tetos — os testes de rejeição acima/no limite
+   exato vivem em tests/test_seguranca_limites_estruturais.py.
 2. OFX malformado com entidades DOCTYPE/ENTITY expandidas (padrão
    "billion laughs"): `ofxparse` usa BeautifulSoup com o parser
    `html.parser` da biblioteca padrão (ver modules/data_analyzer.py não
@@ -170,11 +172,16 @@ def test_csv_com_muitas_linhas_dentro_do_limite_de_tamanho_e_processado_sem_trav
 
 
 def test_csv_com_muitas_colunas_e_processado_sem_erro(pagina_importacao):
-    """Não há teto de número de colunas; um CSV com 2.000 colunas extras
-    (ainda pequeno em bytes) precisa ser aceito e preservar todas as
-    colunas, sem estourar exceção."""
+    """Atualizado pela SEC-R-03 (XCRE-52): esta suíte (Fase 5b) documentava
+    a AUSÊNCIA de um teto de colunas como comportamento então-atual; a
+    revisão de segurança dedicada (docs/revisao-seguranca-fase-5.md)
+    tornou isso um achado e um teto de colunas (LIMITE_CSV_MAX_COLUNAS,
+    padrão 200) passou a existir — ver tests/test_seguranca_limites_estruturais.py
+    para os testes de rejeição acima/no limite. Este teste passa a
+    verificar o mesmo comportamento de antes (muitas colunas, todas
+    preservadas, sem exceção) mas DENTRO do novo teto."""
     pg = pagina_importacao
-    n_colunas_extra = 2000
+    n_colunas_extra = pg.LIMITE_CSV_MAX_COLUNAS - 2
     cabecalho = "data,valor," + ",".join(f"extra_{i}" for i in range(n_colunas_extra))
     linha = "2024-01-01,10.00," + ",".join(str(i) for i in range(n_colunas_extra))
     conteudo = (cabecalho + "\n" + linha + "\n").encode("utf-8")
@@ -187,23 +194,29 @@ def test_csv_com_muitas_colunas_e_processado_sem_erro(pagina_importacao):
 
 
 def test_csv_com_celula_gigante_e_processado_sem_truncar(pagina_importacao):
-    """Uma única célula de texto muito grande (500 KB, ainda dentro do
-    limite de 10 MiB do arquivo inteiro) precisa ser aceita e preservada
-    por completo, sem truncar nem lançar exceção."""
+    """Atualizado pela SEC-R-03 (XCRE-52): esta suíte (Fase 5b) documentava
+    a AUSÊNCIA de um teto de caracteres por campo como comportamento
+    então-atual; a revisão de segurança dedicada tornou isso um achado e
+    um teto (LIMITE_CSV_MAX_CARACTERES_CAMPO, padrão 10.000) passou a
+    existir — ver tests/test_seguranca_limites_estruturais.py para os
+    testes de rejeição acima/no limite. Este teste passa a verificar o
+    mesmo comportamento de antes (célula grande preservada por completo,
+    sem truncar nem lançar exceção) mas DENTRO do novo teto."""
     pg = pagina_importacao
-    descricao_gigante = "X" * 500_000
+    tamanho_celula = pg.LIMITE_CSV_MAX_CARACTERES_CAMPO
+    descricao_grande = "X" * tamanho_celula
     conteudo = (
         "data,valor,descricao\n"
-        f"2024-01-01,10.00,{descricao_gigante}\n"
+        f"2024-01-01,10.00,{descricao_grande}\n"
     ).encode("utf-8")
     assert len(conteudo) < pg.MAX_FILE_SIZE_BYTES
 
-    arquivo = ArquivoFalso(conteudo, "extrato_celula_gigante.csv")
+    arquivo = ArquivoFalso(conteudo, "extrato_celula_grande.csv")
 
     valido, motivo, encoding, df = pg.validar_entrada_csv(arquivo)
 
     assert valido is True
-    assert len(df.loc[0, "descricao"]) == 500_000
+    assert len(df.loc[0, "descricao"]) == tamanho_celula
 
 
 # --- 2. OFX malformado com entidades DOCTYPE/ENTITY expandidas ---
