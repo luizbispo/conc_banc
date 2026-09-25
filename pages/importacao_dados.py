@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import modules.data_processor as processor
 import tempfile
 import os
+from typing import Optional, Tuple
 from modules.performance_optimizer import chunker, cache_manager
 from modules.auth_middleware import enforce_auth, get_current_user
 from modules.audit_logger import get_audit_logger
@@ -59,6 +60,125 @@ def _contar_linhas_arquivo(arquivo) -> int:
         except UnicodeDecodeError:
             continue
     return 0
+
+# Validação de entrada para OFX/CSV: antes destas funções, um arquivo
+# vazio, binário, com encoding não suportado ou sem as colunas mínimas
+# (data/valor) só era detectado quando o parser correspondente (pandas,
+# ofxparse) já tinha lançado uma exceção — cuja mensagem crua (em inglês,
+# às vezes citando estrutura interna do parser) chegava direto ao
+# usuário via `st.error(f"...: {e}")`. As funções abaixo validam ANTES
+# do parsing e devolvem mensagens fixas em português, sem stack trace e
+# sem caminho de arquivo (apenas o nome do upload, que o usuário já viu).
+ENCODINGS_SUPORTADOS_CSV = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+
+# Padrões de nome de coluna já usados em modules/file_processor.py para
+# mapeamento automático; aqui servem para decidir se o CSV tem, no
+# mínimo, uma coluna de data e uma de valor reconhecíveis.
+_PADROES_COLUNA_DATA = ['data', 'date', 'dt']
+_PADROES_COLUNA_VALOR = ['valor', 'value', 'amount', 'vlr']
+
+
+def _detectar_conteudo_binario(conteudo: bytes) -> bool:
+    """Heurística para distinguir texto (CSV/OFX) de binário: byte NUL ou
+    proporção alta de bytes fora da faixa imprimível/latin nos primeiros
+    4KB. Não decodifica nada, então funciona mesmo com encoding inválido."""
+    if b'\x00' in conteudo:
+        return True
+    if not conteudo:
+        return False
+    amostra = conteudo[:4096]
+    texto_ok = sum(1 for b in amostra if b in (9, 10, 13) or 32 <= b <= 126 or b >= 160)
+    return (texto_ok / len(amostra)) < 0.85
+
+
+def validar_entrada_csv(arquivo) -> Tuple[bool, str, Optional[str], Optional[pd.DataFrame]]:
+    """Valida um upload CSV antes de usá-lo na conciliação.
+
+    Retorna (valido, motivo, encoding_usado, dataframe). Quando válido,
+    motivo é "" e dataframe já vem lido (evita ler o conteúdo duas vezes
+    com encodings diferentes)."""
+    nome = getattr(arquivo, 'name', 'arquivo')
+
+    if not nome.lower().endswith('.csv'):
+        return False, f"Arquivo '{nome}' não tem extensão .csv.", None, None
+
+    arquivo.seek(0)
+    conteudo = arquivo.read()
+    arquivo.seek(0)
+
+    if len(conteudo) == 0:
+        return False, f"Arquivo '{nome}' está vazio.", None, None
+
+    if _detectar_conteudo_binario(conteudo):
+        return False, f"Arquivo '{nome}' parece conter dados binários, não um CSV de texto válido.", None, None
+
+    texto = None
+    encoding_usado = None
+    for encoding in ENCODINGS_SUPORTADOS_CSV:
+        try:
+            texto = conteudo.decode(encoding)
+            encoding_usado = encoding
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    if texto is None:
+        return (
+            False,
+            f"Não foi possível identificar o encoding do arquivo '{nome}'. "
+            "Salve o arquivo em UTF-8, Latin-1 ou CP1252 e tente novamente.",
+            None,
+            None,
+        )
+
+    try:
+        df = pd.read_csv(io.StringIO(texto))
+    except (pd.errors.EmptyDataError, pd.errors.ParserError):
+        return False, f"Arquivo '{nome}' não pôde ser interpretado como CSV válido.", encoding_usado, None
+
+    if df.empty or len(df.columns) == 0:
+        return False, f"Arquivo '{nome}' não contém dados.", encoding_usado, None
+
+    colunas_lower = [str(c).lower() for c in df.columns]
+    tem_data = any(any(padrao in col for padrao in _PADROES_COLUNA_DATA) for col in colunas_lower)
+    tem_valor = any(any(padrao in col for padrao in _PADROES_COLUNA_VALOR) for col in colunas_lower)
+
+    faltando = [nome_col for nome_col, ok in (("data", tem_data), ("valor", tem_valor)) if not ok]
+    if faltando:
+        return (
+            False,
+            f"Arquivo '{nome}' não contém as colunas obrigatórias: {', '.join(faltando)}. "
+            f"Colunas encontradas: {', '.join(str(c) for c in df.columns)}.",
+            encoding_usado,
+            None,
+        )
+
+    return True, "", encoding_usado, df
+
+
+def validar_entrada_ofx(arquivo) -> Tuple[bool, str]:
+    """Valida um upload OFX antes de enviá-lo ao ofxparse.
+
+    Retorna (valido, motivo); motivo é "" quando válido."""
+    nome = getattr(arquivo, 'name', 'arquivo')
+
+    if not nome.lower().endswith('.ofx'):
+        return False, f"Arquivo '{nome}' não tem extensão .ofx."
+
+    arquivo.seek(0)
+    conteudo = arquivo.read()
+    arquivo.seek(0)
+
+    if len(conteudo) == 0:
+        return False, f"Arquivo '{nome}' está vazio."
+
+    if _detectar_conteudo_binario(conteudo):
+        return False, f"Arquivo '{nome}' parece conter dados binários, não um OFX de texto válido."
+
+    if b'ofx' not in conteudo[:2048].lower():
+        return False, f"Arquivo '{nome}' não parece ser um OFX válido (cabeçalho OFX não encontrado)."
+
+    return True, ""
 
 # --- Menu Customizado ---
 with st.sidebar:
@@ -870,6 +990,14 @@ def processar_arquivo(arquivo, tipo_arquivo):
         df = None
 
         if tipo_arquivo == 'ofx':
+            valido_entrada, motivo_entrada = validar_entrada_ofx(arquivo)
+            if not valido_entrada:
+                st.error(f"❌ {motivo_entrada}")
+                audit.log_file_upload(
+                    file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
+                    user=usuario_atual, success=False, error_message=motivo_entrada,
+                )
+                return None
             df = processar_ofx(arquivo)
         elif tipo_arquivo == 'cnab':
             df = processar_cnab(arquivo)
@@ -877,18 +1005,14 @@ def processar_arquivo(arquivo, tipo_arquivo):
             df = processar_pdf(arquivo)
         elif tipo_arquivo in ['csv', 'excel']:
             if tipo_arquivo == 'csv':
-                # Tentar diferentes encodings
-                for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']:
-                    try:
-                        arquivo.seek(0)
-                        df = pd.read_csv(arquivo, encoding=encoding)
-                        break
-                    except:
-                        continue
-                # Última tentativa
-                if df is None:
-                    arquivo.seek(0)
-                    df = pd.read_csv(arquivo)
+                valido_entrada, motivo_entrada, _encoding_usado, df = validar_entrada_csv(arquivo)
+                if not valido_entrada:
+                    st.error(f"❌ {motivo_entrada}")
+                    audit.log_file_upload(
+                        file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
+                        user=usuario_atual, success=False, error_message=motivo_entrada,
+                    )
+                    return None
             else:
                 df = pd.read_excel(arquivo)
         
