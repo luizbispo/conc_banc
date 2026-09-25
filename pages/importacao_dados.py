@@ -91,6 +91,29 @@ def _detectar_conteudo_binario(conteudo: bytes) -> bool:
     return (texto_ok / len(amostra)) < 0.85
 
 
+@st.cache_data(show_spinner=False)
+def _parsear_csv_cacheado(conteudo: bytes, encoding: str) -> pd.DataFrame:
+    """Núcleo de parsing do CSV: isolado (só bytes + encoding, sem
+    Streamlit, sem sessão, sem arquivo em disco) e cacheado.
+
+    Sem este cache, o Streamlit reexecuta o script inteiro a cada
+    interação na página (mudar um filtro, clicar em outro botão etc.),
+    e o MESMO upload seria relido e reparseado do zero em cada rerun.
+    `st.cache_data` calcula um hash determinístico dos argumentos — aqui
+    os bytes crus do arquivo e o encoding já detectado por
+    `validar_entrada_csv` — como chave de cache: o mesmo conteúdo com o
+    mesmo encoding reaproveita o DataFrame já parseado; qualquer byte
+    diferente OU encoding diferente (mesmo conteúdo, parâmetro
+    diferente) gera uma chave nova e reprocessa. `st.cache_data` (ao
+    contrário de `st.cache_resource`) devolve uma CÓPIA do valor
+    cacheado em cada chamada, então mutar o DataFrame retornado (ex.:
+    adicionar coluna em `processar_arquivo`) nunca contamina o cache.
+    Não recebe nem guarda nada além dos bytes e do encoding — nenhuma
+    credencial, sessão ou objeto mutável do Streamlit passa por aqui."""
+    texto = conteudo.decode(encoding)
+    return pd.read_csv(io.StringIO(texto))
+
+
 def validar_entrada_csv(arquivo) -> Tuple[bool, str, Optional[str], Optional[pd.DataFrame]]:
     """Valida um upload CSV antes de usá-lo na conciliação.
 
@@ -132,7 +155,7 @@ def validar_entrada_csv(arquivo) -> Tuple[bool, str, Optional[str], Optional[pd.
         )
 
     try:
-        df = pd.read_csv(io.StringIO(texto))
+        df = _parsear_csv_cacheado(conteudo, encoding_usado)
     except (pd.errors.EmptyDataError, pd.errors.ParserError):
         return False, f"Arquivo '{nome}' não pôde ser interpretado como CSV válido.", encoding_usado, None
 
@@ -364,25 +387,40 @@ def detectar_tipo_arquivo(nome_arquivo):
     else:
         return 'desconhecido'
 
+@st.cache_data(show_spinner=False)
+def _parsear_ofx_cacheado(conteudo: bytes) -> pd.DataFrame:
+    """Núcleo de parsing do OFX: isolado (só os bytes do arquivo, sem
+    Streamlit, sem sessão, sem nome de arquivo/conta) e cacheado por
+    hash dos bytes — mesmo motivo e mesma garantia de cópia-por-chamada
+    de `_parsear_csv_cacheado` acima. Informação dependente de sessão
+    (modo de validação por nome de arquivo, nome do upload) é aplicada
+    DEPOIS, em `processar_ofx`, nunca entra no que é cacheado aqui."""
+    from ofxparse import OfxParser
+    ofx = OfxParser.parse(io.BytesIO(conteudo))
+
+    transacoes = []
+    for account in ofx.accounts:
+        for transaction in account.statement.transactions:
+            transacoes.append({
+                'data': transaction.date,
+                'valor': float(transaction.amount),
+                'descricao': transaction.memo or transaction.payee or '',
+                'tipo': transaction.type,
+                'id': transaction.id
+            })
+
+    return pd.DataFrame(transacoes)
+
+
 # Função para processar arquivo OFX
 def processar_ofx(arquivo):
     """Processa arquivo OFX"""
     try:
-        from ofxparse import OfxParser
-        ofx = OfxParser.parse(io.BytesIO(arquivo.read()))
-        
-        transacoes = []
-        for account in ofx.accounts:
-            for transaction in account.statement.transactions:
-                transacoes.append({
-                    'data': transaction.date,
-                    'valor': float(transaction.amount),
-                    'descricao': transaction.memo or transaction.payee or '',
-                    'tipo': transaction.type,
-                    'id': transaction.id
-                })
-        
-        df = pd.DataFrame(transacoes)
+        arquivo.seek(0)
+        conteudo = arquivo.read()
+        arquivo.seek(0)
+
+        df = _parsear_ofx_cacheado(conteudo)
         if not df.empty:
             # Adicionar informação da conta ao DataFrame se estiver no modo validação
             if sistema_validacao:
@@ -391,7 +429,7 @@ def processar_ofx(arquivo):
                     df['conta_bancaria'] = conta
                     df['origem_arquivo'] = arquivo.name
                     df['tipo_arquivo'] = tipo
-        
+
         return df
     except Exception as e:
         st.error(f"Erro ao processar OFX: {e}")
