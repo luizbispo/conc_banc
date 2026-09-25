@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import tempfile
+import time
 import modules.data_analyzer as analyzer
 from difflib import SequenceMatcher
 from modules.auth_middleware import require_auth, get_current_user
@@ -12,6 +13,7 @@ import plotly.graph_objects as go
 from modules.interactive_dashboard import get_dashboard
 from modules.audit_logger import get_audit_logger
 from modules.export_divergencias import gerar_csv_divergencias
+from modules.structured_logger import get_structured_logger
 
 audit = get_audit_logger()
 
@@ -339,6 +341,7 @@ def main():
             status_text.text("Executando análise...")
             
             # Executar análise em camadas com tolerâncias fixas
+            _inicio_analise = time.time()
             resultados_exato = analyzer.matching_exato(extrato_filtrado, contabil_filtrado)
             progress_bar.progress(60)
 
@@ -380,6 +383,19 @@ def main():
                 resultados_finais,
                 tolerancia_percentual,
                 _usuario_logado['username'] if _usuario_logado else 'Sistema',
+            )
+
+            # LOG ESTRUTURADO (item 5): só contagens agregadas e duração,
+            # nunca ids/descrições/valores das transações envolvidas.
+            _total_divergencias = sum(
+                len(excecao.get('ids_envolvidos', [])) for excecao in resultados_finais.get('excecoes', [])
+            )
+            get_structured_logger().log_analise(
+                total_extrato=len(extrato_filtrado),
+                total_contabil=len(contabil_filtrado),
+                total_matches=len(resultados_finais.get('matches', [])),
+                total_divergencias=_total_divergencias,
+                duracao_segundos=time.time() - _inicio_analise,
             )
 
             # Salvar na sessão

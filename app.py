@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timedelta
 import jwt
 import os
+import time
 from typing import Optional
 from modules.auth_middleware import (
     SECRET_KEY,
@@ -23,6 +24,7 @@ from modules.auth_middleware import (
     is_token_revoked,
 )
 from modules.audit_logger import get_audit_logger, AuditAction, AuditSeverity
+from modules.structured_logger import get_structured_logger
 
 # Configuração da página
 st.set_page_config(
@@ -133,6 +135,7 @@ def login_user(username: str, password: str) -> tuple[bool, Optional[dict], str]
     """
     audit = get_audit_logger()
     genericos = "Usuário ou senha incorretos"
+    _inicio_login = time.time()
 
     allowed, retry_after_seconds = check_login_rate_limit(username)
     if not allowed:
@@ -142,6 +145,10 @@ def login_user(username: str, password: str) -> tuple[bool, Optional[dict], str]
             user=username or "desconhecido",
             description="Login bloqueado por limite de tentativas",
             severity=AuditSeverity.WARNING,
+        )
+        get_structured_logger().log_login(
+            sucesso=False, motivo="limite_de_tentativas",
+            duracao_segundos=time.time() - _inicio_login,
         )
         return False, None, f"Muitas tentativas de login. Tente novamente em {minutos} min."
 
@@ -168,6 +175,10 @@ def login_user(username: str, password: str) -> tuple[bool, Optional[dict], str]
             user=username or "desconhecido",
             description="Falha de login: usuário não encontrado",
             severity=AuditSeverity.WARNING,
+        )
+        get_structured_logger().log_login(
+            sucesso=False, motivo="usuario_nao_encontrado",
+            duracao_segundos=time.time() - _inicio_login,
         )
         return False, None, genericos
 
@@ -205,6 +216,10 @@ def login_user(username: str, password: str) -> tuple[bool, Optional[dict], str]
             description="Falha de login: senha incorreta",
             severity=AuditSeverity.WARNING,
         )
+        get_structured_logger().log_login(
+            sucesso=False, motivo="senha_incorreta",
+            duracao_segundos=time.time() - _inicio_login,
+        )
         return False, None, genericos
 
     if not is_active:
@@ -215,6 +230,10 @@ def login_user(username: str, password: str) -> tuple[bool, Optional[dict], str]
             user=username_db,
             description="Login negado: usuário desativado",
             severity=AuditSeverity.WARNING,
+        )
+        get_structured_logger().log_login(
+            sucesso=False, motivo="usuario_inativo",
+            duracao_segundos=time.time() - _inicio_login,
         )
         # Aqui já sabemos que a senha está correta, então revelar que a
         # conta está desativada não abre uma nova via de enumeração.
@@ -243,6 +262,10 @@ def login_user(username: str, password: str) -> tuple[bool, Optional[dict], str]
         user=username_db,
         description="Login bem-sucedido",
         severity=AuditSeverity.INFO,
+    )
+    get_structured_logger().log_login(
+        sucesso=True, motivo="sucesso", usuario=username_db,
+        duracao_segundos=time.time() - _inicio_login,
     )
 
     user_info = {

@@ -10,10 +10,12 @@ from urllib.parse import urlparse
 import modules.data_processor as processor
 import tempfile
 import os
+import time
 from typing import Optional, Tuple
 from modules.performance_optimizer import chunker, cache_manager
 from modules.auth_middleware import enforce_auth, get_current_user
 from modules.audit_logger import get_audit_logger
+from modules.structured_logger import get_structured_logger
 
 # Esta página processa uploads de arquivos (a principal superfície de dado
 # externo não confiável do sistema) e, diferente das demais páginas
@@ -202,6 +204,34 @@ def validar_entrada_ofx(arquivo) -> Tuple[bool, str]:
         return False, f"Arquivo '{nome}' não parece ser um OFX válido (cabeçalho OFX não encontrado)."
 
     return True, ""
+
+
+def _categorizar_motivo_carga_arquivo(mensagem: str) -> str:
+    """Mapeia uma mensagem de erro (livre, já pensada para o usuário —
+    ver validar_entrada_csv/validar_entrada_ofx/validar_tamanho_arquivo)
+    para uma categoria fixa e curta, sem o nome do arquivo, para uso no
+    log estruturado (item 5): o log nunca grava a mensagem original,
+    que pode conter o nome do upload. As frases comparadas aqui são
+    templates fixos definidos neste mesmo módulo (item 1), não texto
+    livre do usuário — o casamento por substring é estável."""
+    texto = mensagem.lower()
+    if 'excede o limite' in texto:
+        return 'tamanho_excedido'
+    if 'não tem extensão' in texto:
+        return 'extensao_invalida'
+    if 'está vazio' in texto:
+        return 'arquivo_vazio'
+    if 'binári' in texto:
+        return 'arquivo_binario'
+    if 'cabeçalho' in texto:
+        return 'cabecalho_invalido'
+    if 'encoding' in texto:
+        return 'encoding_invalido'
+    if 'colunas obrigatórias' in texto:
+        return 'colunas_obrigatorias_faltando'
+    if 'não contém dados' in texto or 'não pôde ser interpretado' in texto:
+        return 'erro_parsing'
+    return 'erro_desconhecido'
 
 # --- Menu Customizado ---
 with st.sidebar:
@@ -1014,6 +1044,7 @@ def processar_pdf(arquivo):
 def processar_arquivo(arquivo, tipo_arquivo):
     """Processa arquivo baseado no tipo"""
     tamanho_arquivo = getattr(arquivo, 'size', 0) or 0
+    _inicio_carga = time.time()
 
     valido, motivo = validar_tamanho_arquivo(arquivo)
     if not valido:
@@ -1021,6 +1052,11 @@ def processar_arquivo(arquivo, tipo_arquivo):
         audit.log_file_upload(
             file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
             user=usuario_atual, success=False, error_message=motivo,
+        )
+        get_structured_logger().log_carga_arquivo(
+            formato=tipo_arquivo, sucesso=False, motivo='tamanho_excedido',
+            registros=0, tamanho_bytes=tamanho_arquivo,
+            duracao_segundos=time.time() - _inicio_carga,
         )
         return None
 
@@ -1034,6 +1070,12 @@ def processar_arquivo(arquivo, tipo_arquivo):
                 audit.log_file_upload(
                     file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
                     user=usuario_atual, success=False, error_message=motivo_entrada,
+                )
+                get_structured_logger().log_carga_arquivo(
+                    formato=tipo_arquivo, sucesso=False,
+                    motivo=_categorizar_motivo_carga_arquivo(motivo_entrada),
+                    registros=0, tamanho_bytes=tamanho_arquivo,
+                    duracao_segundos=time.time() - _inicio_carga,
                 )
                 return None
             df = processar_ofx(arquivo)
@@ -1049,6 +1091,12 @@ def processar_arquivo(arquivo, tipo_arquivo):
                     audit.log_file_upload(
                         file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
                         user=usuario_atual, success=False, error_message=motivo_entrada,
+                    )
+                    get_structured_logger().log_carga_arquivo(
+                        formato=tipo_arquivo, sucesso=False,
+                        motivo=_categorizar_motivo_carga_arquivo(motivo_entrada),
+                        registros=0, tamanho_bytes=tamanho_arquivo,
+                        duracao_segundos=time.time() - _inicio_carga,
                     )
                     return None
             else:
@@ -1067,10 +1115,20 @@ def processar_arquivo(arquivo, tipo_arquivo):
                 file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
                 user=usuario_atual, success=True,
             )
+            get_structured_logger().log_carga_arquivo(
+                formato=tipo_arquivo, sucesso=True, motivo='sucesso',
+                registros=len(df), tamanho_bytes=tamanho_arquivo,
+                duracao_segundos=time.time() - _inicio_carga,
+            )
         else:
             audit.log_file_upload(
                 file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
                 user=usuario_atual, success=False, error_message="Nenhum dado extraído do arquivo",
+            )
+            get_structured_logger().log_carga_arquivo(
+                formato=tipo_arquivo, sucesso=False, motivo='nenhum_dado_extraido',
+                registros=0, tamanho_bytes=tamanho_arquivo,
+                duracao_segundos=time.time() - _inicio_carga,
             )
 
         return df
@@ -1080,6 +1138,11 @@ def processar_arquivo(arquivo, tipo_arquivo):
         audit.log_file_upload(
             file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
             user=usuario_atual, success=False, error_message=str(e),
+        )
+        get_structured_logger().log_carga_arquivo(
+            formato=tipo_arquivo, sucesso=False, motivo='erro_desconhecido',
+            registros=0, tamanho_bytes=tamanho_arquivo,
+            duracao_segundos=time.time() - _inicio_carga,
         )
         return None
 
