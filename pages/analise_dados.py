@@ -11,6 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from modules.interactive_dashboard import get_dashboard
 from modules.audit_logger import get_audit_logger
+from modules.export_divergencias import gerar_csv_divergencias
 
 audit = get_audit_logger()
 
@@ -598,7 +599,7 @@ def main():
                         st.dataframe(tabelas_divergencias['bancario_sem_contabil'], width='stretch')
                         
                         # Botão de exportação
-                        csv_bancario = tabelas_divergencias['bancario_sem_contabil'].to_csv(index=False)
+                        csv_bancario = gerar_csv_divergencias(tabelas_divergencias['bancario_sem_contabil'])
                         st.download_button(
                             label="📥 Exportar Divergências Bancárias",
                             data=csv_bancario,
@@ -613,7 +614,7 @@ def main():
                     if not tabelas_divergencias['contabil_sem_bancario'].empty:
                         st.dataframe(tabelas_divergencias['contabil_sem_bancario'], width='stretch')
                         
-                        csv_contabil = tabelas_divergencias['contabil_sem_bancario'].to_csv(index=False)
+                        csv_contabil = gerar_csv_divergencias(tabelas_divergencias['contabil_sem_bancario'])
                         st.download_button(
                             label="📥 Exportar Divergências Contábeis",
                             data=csv_contabil,
@@ -628,7 +629,7 @@ def main():
                     if not tabelas_divergencias['possiveis_similaridades'].empty:
                         st.dataframe(tabelas_divergencias['possiveis_similaridades'], width='stretch')
                         
-                        csv_similaridades = tabelas_divergencias['possiveis_similaridades'].to_csv(index=False)
+                        csv_similaridades = gerar_csv_divergencias(tabelas_divergencias['possiveis_similaridades'])
                         st.download_button(
                             label="📥 Exportar Similaridades",
                             data=csv_similaridades,
