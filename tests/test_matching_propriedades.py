@@ -1,16 +1,27 @@
 """
-Testes de propriedade do matching exato (issue XCRE-49, Fase 5, item 3).
+Testes de propriedade do matching exato (issue XCRE-49/XCRE-50, Fase 5
+e Fase 5b, item 3/2).
 
-Por instrução explícita desta rodada: SOMENTE testes, sem alterar
-`modules/data_analyzer.py`. As propriedades gerais usam dados
-sintéticos com seed fixa e SEM ambiguidade de (valor, data) — isto é
-proposital: a última seção deste arquivo demonstra que a camada de
-fallback `DataAnalyzer._match_valor_data_exata` NÃO é invariante à
-ordem das linhas quando há ambiguidade (duas ou mais linhas do mesmo
+As propriedades gerais usam dados sintéticos com seed fixa e SEM
+ambiguidade de (valor, data) — isto é proposital: a última seção deste
+arquivo cobre o caso COM ambiguidade (duas ou mais linhas do mesmo
 lado com valor+data idênticos e menos linhas correspondentes do lado
-oposto) — um achado real, registrado e não corrigido/mascarado/
-enfraquecido aqui (ver docstring de
-`test_matching_ambiguidade_mesma_data_e_valor_depende_da_ordem_das_linhas`).
+oposto).
+
+Achado da Fase 5 (registrado, não corrigido naquela rodada): a camada
+de fallback `DataAnalyzer._match_valor_data_exata` processava o
+extrato na ordem física de chegada das linhas (`iterrows()`), então,
+havendo ambiguidade, o par formado dependia de QUAL linha chegava
+primeiro, não do conteúdo.
+
+Correção da Fase 5b (item 2, XCRE-50): `_match_valor_data_exata` agora
+ordena as linhas do extrato por uma CHAVE CANÔNICA de conteúdo
+(descrição normalizada, depois id só como último desempate) antes de
+processá-las, então o par escolhido passa a ser função do conteúdo das
+linhas, não da ordem física em que chegam — sem alterar nenhum
+critério de valor/data do matching. Os testes abaixo cobrem as duas
+ordens (original e invertida) e confirmam que o resultado agora é
+idêntico nos dois casos.
 
 Dados 100% sintéticos.
 """
@@ -179,41 +190,31 @@ def test_matching_exato_e_idempotente(seed):
     assert _normalizar_pares(resultado_a['matches']) == _normalizar_pares(resultado_b['matches'])
 
 
-# --- Achado: ambiguidade de (valor, data) quebra a invariância de ordem ---
+# --- Correção: ambiguidade de (valor, data) resolvida por chave canônica ---
 
-def test_matching_ambiguidade_mesma_data_e_valor_depende_da_ordem_das_linhas():
-    """ACHADO real (não corrigido nesta rodada — instrução explícita do
-    item 3 da Fase 5 é registrar, não corrigir/mascarar/enfraquecer).
+def test_matching_ambiguidade_mesma_data_e_valor_e_deterministico_independente_da_ordem():
+    """Regressão da correção do item 2 (Fase 5b, XCRE-50): antes, o par
+    formado em caso de ambiguidade de (valor, data) dependia da ORDEM
+    física das linhas do extrato (ver histórico no docstring do módulo
+    e commit da Fase 5). Agora `_match_valor_data_exata` ordena o
+    extrato por uma chave canônica de conteúdo (descrição normalizada,
+    depois id) antes de processá-lo, então o mesmo par deve se formar
+    nas duas ordens.
 
-    `DataAnalyzer._match_valor_data_exata` (modules/data_analyzer.py)
-    percorre o extrato em `iterrows()` e, a cada linha casada, remove o
-    id contábil consumido do pool de candidatos das próximas linhas.
-    Quando há AMBIGUIDADE — mais linhas de um lado do que do outro com o
-    MESMO (valor, data) —, qual par exato se forma passa a depender da
-    ORDEM em que o extrato é iterado, não do conteúdo. Isso viola a
-    propriedade "inverter/embaralhar a ordem das linhas não muda o
-    conjunto de pares" (testada acima para o caso SEM ambiguidade).
+    Reprodução mínima, determinística, sem necessidade de seed: 2
+    linhas de extrato (id 1 "Transacao A", id 2 "Transacao B"), mesmo
+    valor (100.00) e mesma data; 1 linha contábil (id 10) com o mesmo
+    valor e data. "transacao a" < "transacao b" na ordenação canônica
+    (case-insensitive), então o id 1 do extrato deve casar com o id 10
+    em QUALQUER ordem de entrada — inclusive com as linhas invertidas.
 
-    Reprodução mínima, determinística, sem necessidade de seed: 2 linhas
-    de extrato (id 1 e id 2), mesmo valor (100.00) e mesma data; 1 linha
-    contábil (id 10) com o mesmo valor e data. Processando o extrato na
-    ordem [1, 2], o id 1 do extrato fica casado com o id 10; invertendo
-    para [2, 1], é o id 2 que fica casado com o id 10 — o par muda de
-    conteúdo (qual id de extrato) mesmo que a FORMA do resultado (1 par
-    formado, 1 id de extrato restando como divergência) seja igual nos
-    dois casos.
-
-    Impacto: seed/reprodução acima; não afeta o cenário de referência
-    B x C usado no resto do projeto — ele não tem duplicatas de
-    (valor, data), e o invariante de 77,8% permanece intacto (ver
+    Impacto no cenário de referência B x C: nenhum — o cenário de
+    referência não tem duplicatas de (valor, data), e o invariante de
+    77,8% permanece intacto (ver
     tests/test_tolerancia_referencia_b_x_c.py, checado nesta mesma
-    rodada). Também não altera TOTAIS (a soma casados+divergentes por
-    lado continua correta em qualquer ordem, só muda QUAL id específico
-    é marcado como casado) — mas pode fazer o motivo de conciliação
-    exibido para uma linha específica variar entre execuções com o
-    mesmo arquivo se a ordem de leitura não for estável. Registrado
-    para decisão humana/arquiteto; nenhuma alteração de algoritmo feita
-    aqui.
+    rodada). Os totais por lado (casados + divergentes) também não
+    mudam com a correção, só a identidade do id específico que fica
+    marcado como casado deixa de depender da ordem física de chegada.
     """
     base_data = datetime(2024, 3, 10)
     extrato_ordem_a = pd.DataFrame([
@@ -231,15 +232,50 @@ def test_matching_ambiguidade_mesma_data_e_valor_depende_da_ordem_das_linhas():
     pares_a = _normalizar_pares(resultado_a['matches'])
     pares_b = _normalizar_pares(resultado_b['matches'])
 
-    # a FORMA do resultado é igual nos dois casos (1 par formado)...
     assert len(pares_a) == 1
     assert len(pares_b) == 1
     assert len(resultado_a['nao_matchados_extrato']) == 1
     assert len(resultado_b['nao_matchados_extrato']) == 1
 
-    # ...mas o CONTEÚDO do par (qual id de extrato) muda com a ordem de
-    # entrada: esta é a assinatura do achado, não uma propriedade
-    # desejável do sistema.
+    # o par escolhido agora é o MESMO nas duas ordens (id 1, "Transacao
+    # A", vence por ordenação canônica de descrição) — a propriedade
+    # de invariância à ordem, antes violada, agora vale também para o
+    # caso ambíguo.
     assert pares_a == frozenset({((1,), (10,))})
-    assert pares_b == frozenset({((2,), (10,))})
-    assert pares_a != pares_b
+    assert pares_b == frozenset({((1,), (10,))})
+    assert pares_a == pares_b
+
+    # o id que sobra como divergência bancária também é o mesmo nos
+    # dois casos (id 2, "Transacao B").
+    assert resultado_a['nao_matchados_extrato']['id'].tolist() == [2]
+    assert resultado_b['nao_matchados_extrato']['id'].tolist() == [2]
+
+
+def test_desempate_usa_descricao_normalizada_e_nao_apenas_o_id_ou_a_posicao():
+    """A chave canônica precisa ser estável mesmo quando o id "menor"
+    não é o vencedor por descrição — prova de que o desempate é por
+    CONTEÚDO (descrição normalizada), não um alias disfarçado de "menor
+    id" nem da posição física da linha.
+
+    Aqui o id 1 tem descrição "Zebra" e o id 2 tem descrição "Abacaxi";
+    "abacaxi" < "zebra", então o id 2 deve vencer em QUALQUER ordem de
+    entrada, mesmo sendo o id numericamente maior."""
+    base_data = datetime(2024, 5, 20)
+    extrato_ordem_a = pd.DataFrame([
+        {'id': 1, 'data': base_data, 'valor': 250.00, 'descricao': 'Zebra'},
+        {'id': 2, 'data': base_data, 'valor': 250.00, 'descricao': 'Abacaxi'},
+    ])
+    contabil = pd.DataFrame([
+        {'id': 20, 'data': base_data, 'valor': 250.00, 'descricao': 'Lancamento unico'},
+    ])
+    extrato_ordem_b = extrato_ordem_a.iloc[::-1].reset_index(drop=True)
+
+    resultado_a = DataAnalyzer().matching_exato(extrato_ordem_a, contabil)
+    resultado_b = DataAnalyzer().matching_exato(extrato_ordem_b, contabil)
+
+    pares_a = _normalizar_pares(resultado_a['matches'])
+    pares_b = _normalizar_pares(resultado_b['matches'])
+
+    assert pares_a == frozenset({((2,), (20,))})
+    assert pares_b == frozenset({((2,), (20,))})
+    assert pares_a == pares_b
