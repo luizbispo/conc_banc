@@ -33,41 +33,127 @@ _MARCADOR_TRUNCAMENTO = "...(truncado)"
 # mais direta de forjar uma linha extra num log/CSV lido linha a linha.
 _CONTROLES_AUDITORIA_RE = re.compile(r'[\x00-\x1f\x7f]')
 
+# Rodada corretiva isolada de SEC-R-05 (re-verificação independente,
+# XCRE-52): o saneamento acima (controle/tamanho/basename) NÃO impedia
+# que senha, hash, token/JWT ou descrição de transação fossem
+# persistidos — só neutralizava quebra de linha e diretório. A PoC
+# independente confirmou o vazamento desses valores tanto no SQLite
+# quanto no `logger`. Duas defesas complementares:
+#
+# 1) ALLOWLIST de chaves de TOPO em 'details'/'metadata': qualquer
+#    chave fora deste conjunto de campos mínimos úteis (o inventário
+#    real de todo call site de log_* neste código) é DESCARTADA antes
+#    de persistir/logar — fecha por construção qualquer nome de campo
+#    sensível (conhecido ou não: "senha", "password", "hash", "jwt",
+#    "token", "descricao_transacao" etc. nunca estiveram nesta lista).
+#    Só se aplica ao nível de TOPO de 'details'/'metadata' — dicts
+#    aninhados livres já existentes (ex.: 'parameters', 'context',
+#    'report_parameters', 'old_value'/'new_value') continuam passando,
+#    porque suas chaves são configuração legítima e variável, não um
+#    esquema fechado; o conteúdo em texto deles ainda passa pela
+#    redação de conteúdo abaixo.
+# 2) Redação de CONTEÚDO sensível nos campos de texto que sobrevivem
+#    (incluindo o nome de arquivo): um segredo presente no valor de um
+#    campo PERMITIDO, ou embutido no próprio nome do arquivo — não só
+#    no diretório —, também precisa ser removido; reduzir ao basename
+#    por si só não torna seguro um segredo presente no nome em si.
+_CHAVES_PERMITIDAS_DETALHES_METADADOS = frozenset({
+    # log_file_upload
+    'file_name', 'file_type', 'file_size', 'success', 'error_message',
+    # log_data_processing
+    'process_type', 'input_records', 'output_records',
+    'processing_time_seconds', 'success_rate', 'errors',
+    # log_matching_layer
+    'layer', 'matches_found', 'confidence_avg', 'confidence_min',
+    'confidence_max', 'parameters',
+    # log_match_decision
+    'match_id', 'decision', 'reason', 'original_confidence',
+    # log_report_generation
+    'formato', 'lote', 'included_matches', 'included_exceptions',
+    'report_parameters',
+    # log_config_change
+    'config_type', 'old_value', 'new_value',
+    # log_error
+    'error_type', 'stack_trace', 'context',
+    # app.py (gestão de usuários) / auth_middleware.log_user_action
+    'target_user', 'old_role', 'new_role', 'role', 'details',
+})
+
+# JWT: três segmentos base64url separados por ponto, sempre começando
+# por "eyJ" (o header `{"..."}` codificado em base64url).
+_PADRAO_JWT_RE = re.compile(r'\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b')
+# Hash hexadecimal "longo" (MD5=32, SHA-1=40, SHA-256=64 caracteres
+# hexadecimais contíguos) — um UUID com hífens (formato usado para
+# log_id/session_id/match_id neste módulo) nunca bate aqui, porque os
+# hífens quebram a sequência contígua em blocos de no máximo 12 chars.
+_PADRAO_HASH_HEX_RE = re.compile(r'\b[a-fA-F0-9]{32,}\b')
+# Padrão "rótulo=valor"/"rótulo: valor" para os rótulos sensíveis mais
+# comuns — cobre tanto um campo de texto livre ("token=ABC123") quanto
+# um nome de arquivo com o mesmo padrão embutido (ex.:
+# "relatorio_token=X.csv" — sem \b na frente de propósito, porque "_"
+# antes de "token" é caractere de palavra e não conta como fronteira).
+# O valor aceito é só [A-Za-z0-9_-] (sem ponto) de propósito: para em
+# ".csv"/".ofx" no fim de um nome de arquivo em vez de engolir a
+# extensão.
+_PADRAO_SEGREDO_ROTULADO_RE = re.compile(
+    r'(?i)(senha|password|secret|token|api[_-]?key|hash|jwt|chave)\s*[:=]\s*[A-Za-z0-9_\-]+'
+)
+
+
+def _redigir_conteudo_sensivel(texto: str) -> str:
+    """Substitui trechos com formato de segredo (JWT, hash hexadecimal
+    longo, "rótulo=valor" tipo "token=..."/"senha=...") por um marcador
+    fixo — aplicado a QUALQUER texto que sobreviva a este módulo,
+    inclusive nome de arquivo e campos permitidos pela allowlist."""
+    texto = _PADRAO_JWT_RE.sub('[REDACTED_JWT]', texto)
+    texto = _PADRAO_HASH_HEX_RE.sub('[REDACTED_HASH]', texto)
+    texto = _PADRAO_SEGREDO_ROTULADO_RE.sub(lambda m: f"{m.group(1)}=[REDACTED]", texto)
+    return texto
+
 
 def _sanear_texto_auditoria(valor: Any, max_caracteres: int = MAX_TEXTO_AUDITORIA_CARACTERES) -> Any:
     """Substitui caracteres de controle (CR, LF e demais C0/DEL) por
-    espaço e trunca para no máximo `max_caracteres`. Só atua em `str` —
-    números, bool, None, dict e list são devolvidos sem alteração, pois
-    não representam texto livre digitado/enviado por alguém."""
+    espaço, redige conteúdo com formato de segredo (JWT/hash/rótulo de
+    senha-token) e trunca para no máximo `max_caracteres`. Só atua em
+    `str` — números, bool, None, dict e list são devolvidos sem
+    alteração, pois não representam texto livre digitado/enviado por
+    alguém."""
     if not isinstance(valor, str):
         return valor
     sem_controles = _CONTROLES_AUDITORIA_RE.sub(' ', valor)
-    if len(sem_controles) > max_caracteres:
-        return sem_controles[:max_caracteres] + _MARCADOR_TRUNCAMENTO
-    return sem_controles
+    sem_segredos = _redigir_conteudo_sensivel(sem_controles)
+    if len(sem_segredos) > max_caracteres:
+        return sem_segredos[:max_caracteres] + _MARCADOR_TRUNCAMENTO
+    return sem_segredos
 
 
 def _sanear_nome_arquivo_auditoria(nome: Any) -> Any:
     """Reduz um nome de arquivo controlado pelo usuário ao basename —
     remove qualquer diretório/caminho (inclusive tentativa de path
     traversal, ex.: "../../etc/x.csv" -> "x.csv") — e então aplica o
-    saneamento de texto normal. O NOME em si (escolhido por quem fez o
-    upload) é preservado; só o caminho é removido. Só atua em `str`."""
+    saneamento de texto normal (que agora também redige um segredo
+    presente no NOME em si, ex. "relatorio_token=X.csv", não só no
+    caminho que já foi removido). Só atua em `str`."""
     if not isinstance(nome, str):
         return nome
     return _sanear_texto_auditoria(os.path.basename(nome))
 
 
-def _sanear_valor_auditoria(valor: Any, chave: Optional[str] = None) -> Any:
+def _sanear_valor_auditoria(valor: Any, chave: Optional[str] = None, nivel_topo: bool = False) -> Any:
     """Aplica o saneamento acima recursivamente a dict/list — usado para
     'details'/'metadata'/'transaction_ids', que podem conter texto livre
     em qualquer nível de aninhamento. A chave 'file_name' (única usada
     hoje para nome de upload, ver log_file_upload) recebe o saneamento de
-    NOME DE ARQUIVO em vez do saneamento de texto genérico; um campo novo
-    que carregue um nome de arquivo bruto deve usar esse mesmo nome de
-    chave para herdar a proteção automaticamente."""
+    NOME DE ARQUIVO em vez do saneamento de texto genérico. `nivel_topo`
+    só é True na chamada inicial (a partir de `log_action`, para o
+    próprio dict 'details'/'metadata'): só nesse nível a ALLOWLIST de
+    chaves é aplicada — dicts aninhados (ex.: 'parameters') não têm suas
+    chaves internas filtradas, só o conteúdo de texto saneado."""
     if isinstance(valor, dict):
-        return {k: _sanear_valor_auditoria(v, chave=k) for k, v in valor.items()}
+        itens = valor.items()
+        if nivel_topo:
+            itens = [(k, v) for k, v in itens if k in _CHAVES_PERMITIDAS_DETALHES_METADADOS]
+        return {k: _sanear_valor_auditoria(v, chave=k) for k, v in itens}
     if isinstance(valor, list):
         return [_sanear_valor_auditoria(v, chave=chave) for v in valor]
     if chave == 'file_name':
@@ -210,9 +296,9 @@ class AuditLogger:
         # já usa os valores saneados.
         user = _sanear_texto_auditoria(user)
         description = _sanear_texto_auditoria(description)
-        details = _sanear_valor_auditoria(details or {})
+        details = _sanear_valor_auditoria(details or {}, nivel_topo=True)
         transaction_ids = _sanear_valor_auditoria(transaction_ids or [])
-        metadata = _sanear_valor_auditoria(metadata or {})
+        metadata = _sanear_valor_auditoria(metadata or {}, nivel_topo=True)
 
         log_entry = {
             'log_id': log_id,
