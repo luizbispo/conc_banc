@@ -5,6 +5,7 @@ import numpy as np
 from datetime import datetime
 import tempfile
 import os
+import time
 import base64
 import modules.report_generator as report_gen
 import modules.report_executivo as report_executivo
@@ -12,6 +13,7 @@ import locale
 from difflib import SequenceMatcher
 from modules.auth_middleware import require_auth, get_current_user
 from modules.audit_logger import get_audit_logger
+from modules.structured_logger import get_structured_logger
 
 
 # parse_valor_moeda mudou de casa para modules/report_generator.py (é
@@ -533,6 +535,7 @@ def main():
         
         if st.button("🔄 Gerar Relatório de Análise", type="primary", width='stretch', key="btn_gerar_relatorio_analise"):
             with st.spinner("Gerando relatório PDF..."):
+                _inicio_relatorio = time.time()
                 try:
                     # Obter as tabelas de divergências melhoradas se existirem
                     divergencias_tabela = None
@@ -590,6 +593,11 @@ def main():
                             formato=formato_relatorio.lower(), user=usuario_atual, lote=lote_auditoria,
                             success=False, error_message=motivo,
                         )
+                        get_structured_logger().log_geracao_relatorio(
+                            formato=formato_relatorio.lower(), sucesso=False, motivo='falha',
+                            matches_incluidos=0, divergencias_incluidas=0,
+                            duracao_segundos=time.time() - _inicio_relatorio,
+                        )
                         st.error(f"❌ Erro: {motivo}")
                         st.stop()
 
@@ -602,6 +610,11 @@ def main():
                         audit.log_report_generation(
                             formato=formato_relatorio.lower(), user=usuario_atual, lote=lote_auditoria,
                             success=False, error_message=motivo,
+                        )
+                        get_structured_logger().log_geracao_relatorio(
+                            formato=formato_relatorio.lower(), sucesso=False, motivo='falha',
+                            matches_incluidos=0, divergencias_incluidas=0,
+                            duracao_segundos=time.time() - _inicio_relatorio,
                         )
                         st.error(f"❌ Erro: {motivo}")
                         st.stop()
@@ -616,6 +629,11 @@ def main():
                         audit.log_report_generation(
                             formato=formato_relatorio.lower(), user=usuario_atual, lote=lote_auditoria,
                             success=False, error_message=motivo,
+                        )
+                        get_structured_logger().log_geracao_relatorio(
+                            formato=formato_relatorio.lower(), sucesso=False, motivo='falha',
+                            matches_incluidos=0, divergencias_incluidas=0,
+                            duracao_segundos=time.time() - _inicio_relatorio,
                         )
                         st.error(f"❌ Erro: {motivo}")
                         st.stop()
@@ -633,6 +651,12 @@ def main():
                             'incluir_estatisticas': incluir_estatisticas,
                             'incluir_recomendacoes': incluir_recomendacoes,
                         },
+                    )
+                    get_structured_logger().log_geracao_relatorio(
+                        formato=formato_relatorio.lower(), sucesso=True, motivo='sucesso',
+                        matches_incluidos=len(resultados_analise.get('matches', [])),
+                        divergencias_incluidas=len(resultados_analise.get('excecoes', [])),
+                        duracao_segundos=time.time() - _inicio_relatorio,
                     )
 
                     # Criar download link
@@ -657,6 +681,11 @@ def main():
                         lote=f"{st.session_state.get('conta_analisada', 'Não identificada')} | {periodo_relatorio}",
                         success=False,
                         error_message=str(e),
+                    )
+                    get_structured_logger().log_geracao_relatorio(
+                        formato=formato_relatorio.lower(), sucesso=False, motivo='falha',
+                        matches_incluidos=0, divergencias_incluidas=0,
+                        duracao_segundos=time.time() - _inicio_relatorio,
                     )
                     st.error(f"❌ Erro ao gerar relatório: {str(e)}")
 

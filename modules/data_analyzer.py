@@ -352,11 +352,31 @@ class DataAnalyzer:
     
     def _match_valor_data_exata(self, extrato_df: pd.DataFrame, contabil_df: pd.DataFrame,
                            extrato_match_ids: set, contabil_match_ids: set) -> List[Dict]:
-        """Matching por valor e data exata"""
+        """Matching por valor e data exata.
+
+        Desempate determinístico (achado da Fase 5, corrigido na Fase
+        5b/XCRE-50): quando há AMBIGUIDADE de (valor, data) — mais
+        linhas de um lado do que candidatos disponíveis do outro —,
+        qual linha específica "vence" a disputa pelo(s) candidato(s)
+        restante(s) não pode depender da ORDEM FÍSICA de chegada das
+        linhas do extrato, só do seu CONTEÚDO. Por isso o extrato é
+        processado em ordem canônica (descrição normalizada e, só como
+        último desempate, id) em vez da ordem de iteração original.
+        Isso não altera nenhum critério de valor/data do matching, só
+        a ordem em que candidatos empatados são consumidos.
+        """
         matches = []
-        extrato_nao_match = extrato_df[~extrato_df['id'].isin(extrato_match_ids)]
+        extrato_nao_match = extrato_df[~extrato_df['id'].isin(extrato_match_ids)].copy()
         contabil_nao_match = contabil_df[~contabil_df['id'].isin(contabil_match_ids)]
-        
+
+        if 'descricao' in extrato_nao_match.columns:
+            chave_descricao = extrato_nao_match['descricao'].fillna('').astype(str).str.strip().str.casefold()
+        else:
+            chave_descricao = ''
+        extrato_nao_match = extrato_nao_match.assign(_chave_desempate=chave_descricao).sort_values(
+            by=['_chave_desempate', 'id'], kind='mergesort', ignore_index=True
+        )
+
         for _, extrato_row in extrato_nao_match.iterrows():
             if extrato_row['id'] in extrato_match_ids: continue
             valor_extrato_abs = abs(extrato_row['valor'])

@@ -10,9 +10,12 @@ from urllib.parse import urlparse
 import modules.data_processor as processor
 import tempfile
 import os
+import time
+from typing import Optional, Tuple
 from modules.performance_optimizer import chunker, cache_manager
 from modules.auth_middleware import enforce_auth, get_current_user
 from modules.audit_logger import get_audit_logger
+from modules.structured_logger import get_structured_logger
 
 # Esta página processa uploads de arquivos (a principal superfície de dado
 # externo não confiável do sistema) e, diferente das demais páginas
@@ -59,6 +62,176 @@ def _contar_linhas_arquivo(arquivo) -> int:
         except UnicodeDecodeError:
             continue
     return 0
+
+# Validação de entrada para OFX/CSV: antes destas funções, um arquivo
+# vazio, binário, com encoding não suportado ou sem as colunas mínimas
+# (data/valor) só era detectado quando o parser correspondente (pandas,
+# ofxparse) já tinha lançado uma exceção — cuja mensagem crua (em inglês,
+# às vezes citando estrutura interna do parser) chegava direto ao
+# usuário via `st.error(f"...: {e}")`. As funções abaixo validam ANTES
+# do parsing e devolvem mensagens fixas em português, sem stack trace e
+# sem caminho de arquivo (apenas o nome do upload, que o usuário já viu).
+ENCODINGS_SUPORTADOS_CSV = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+
+# Padrões de nome de coluna já usados em modules/file_processor.py para
+# mapeamento automático; aqui servem para decidir se o CSV tem, no
+# mínimo, uma coluna de data e uma de valor reconhecíveis.
+_PADROES_COLUNA_DATA = ['data', 'date', 'dt']
+_PADROES_COLUNA_VALOR = ['valor', 'value', 'amount', 'vlr']
+
+
+def _detectar_conteudo_binario(conteudo: bytes) -> bool:
+    """Heurística para distinguir texto (CSV/OFX) de binário: byte NUL ou
+    proporção alta de bytes fora da faixa imprimível/latin nos primeiros
+    4KB. Não decodifica nada, então funciona mesmo com encoding inválido."""
+    if b'\x00' in conteudo:
+        return True
+    if not conteudo:
+        return False
+    amostra = conteudo[:4096]
+    texto_ok = sum(1 for b in amostra if b in (9, 10, 13) or 32 <= b <= 126 or b >= 160)
+    return (texto_ok / len(amostra)) < 0.85
+
+
+@st.cache_data(show_spinner=False)
+def _parsear_csv_cacheado(conteudo: bytes, encoding: str) -> pd.DataFrame:
+    """Núcleo de parsing do CSV: isolado (só bytes + encoding, sem
+    Streamlit, sem sessão, sem arquivo em disco) e cacheado.
+
+    Sem este cache, o Streamlit reexecuta o script inteiro a cada
+    interação na página (mudar um filtro, clicar em outro botão etc.),
+    e o MESMO upload seria relido e reparseado do zero em cada rerun.
+    `st.cache_data` calcula um hash determinístico dos argumentos — aqui
+    os bytes crus do arquivo e o encoding já detectado por
+    `validar_entrada_csv` — como chave de cache: o mesmo conteúdo com o
+    mesmo encoding reaproveita o DataFrame já parseado; qualquer byte
+    diferente OU encoding diferente (mesmo conteúdo, parâmetro
+    diferente) gera uma chave nova e reprocessa. `st.cache_data` (ao
+    contrário de `st.cache_resource`) devolve uma CÓPIA do valor
+    cacheado em cada chamada, então mutar o DataFrame retornado (ex.:
+    adicionar coluna em `processar_arquivo`) nunca contamina o cache.
+    Não recebe nem guarda nada além dos bytes e do encoding — nenhuma
+    credencial, sessão ou objeto mutável do Streamlit passa por aqui."""
+    texto = conteudo.decode(encoding)
+    return pd.read_csv(io.StringIO(texto))
+
+
+def validar_entrada_csv(arquivo) -> Tuple[bool, str, Optional[str], Optional[pd.DataFrame]]:
+    """Valida um upload CSV antes de usá-lo na conciliação.
+
+    Retorna (valido, motivo, encoding_usado, dataframe). Quando válido,
+    motivo é "" e dataframe já vem lido (evita ler o conteúdo duas vezes
+    com encodings diferentes)."""
+    nome = getattr(arquivo, 'name', 'arquivo')
+
+    if not nome.lower().endswith('.csv'):
+        return False, f"Arquivo '{nome}' não tem extensão .csv.", None, None
+
+    arquivo.seek(0)
+    conteudo = arquivo.read()
+    arquivo.seek(0)
+
+    if len(conteudo) == 0:
+        return False, f"Arquivo '{nome}' está vazio.", None, None
+
+    if _detectar_conteudo_binario(conteudo):
+        return False, f"Arquivo '{nome}' parece conter dados binários, não um CSV de texto válido.", None, None
+
+    texto = None
+    encoding_usado = None
+    for encoding in ENCODINGS_SUPORTADOS_CSV:
+        try:
+            texto = conteudo.decode(encoding)
+            encoding_usado = encoding
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    if texto is None:
+        return (
+            False,
+            f"Não foi possível identificar o encoding do arquivo '{nome}'. "
+            "Salve o arquivo em UTF-8, Latin-1 ou CP1252 e tente novamente.",
+            None,
+            None,
+        )
+
+    try:
+        df = _parsear_csv_cacheado(conteudo, encoding_usado)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError):
+        return False, f"Arquivo '{nome}' não pôde ser interpretado como CSV válido.", encoding_usado, None
+
+    if df.empty or len(df.columns) == 0:
+        return False, f"Arquivo '{nome}' não contém dados.", encoding_usado, None
+
+    colunas_lower = [str(c).lower() for c in df.columns]
+    tem_data = any(any(padrao in col for padrao in _PADROES_COLUNA_DATA) for col in colunas_lower)
+    tem_valor = any(any(padrao in col for padrao in _PADROES_COLUNA_VALOR) for col in colunas_lower)
+
+    faltando = [nome_col for nome_col, ok in (("data", tem_data), ("valor", tem_valor)) if not ok]
+    if faltando:
+        return (
+            False,
+            f"Arquivo '{nome}' não contém as colunas obrigatórias: {', '.join(faltando)}. "
+            f"Colunas encontradas: {', '.join(str(c) for c in df.columns)}.",
+            encoding_usado,
+            None,
+        )
+
+    return True, "", encoding_usado, df
+
+
+def validar_entrada_ofx(arquivo) -> Tuple[bool, str]:
+    """Valida um upload OFX antes de enviá-lo ao ofxparse.
+
+    Retorna (valido, motivo); motivo é "" quando válido."""
+    nome = getattr(arquivo, 'name', 'arquivo')
+
+    if not nome.lower().endswith('.ofx'):
+        return False, f"Arquivo '{nome}' não tem extensão .ofx."
+
+    arquivo.seek(0)
+    conteudo = arquivo.read()
+    arquivo.seek(0)
+
+    if len(conteudo) == 0:
+        return False, f"Arquivo '{nome}' está vazio."
+
+    if _detectar_conteudo_binario(conteudo):
+        return False, f"Arquivo '{nome}' parece conter dados binários, não um OFX de texto válido."
+
+    if b'ofx' not in conteudo[:2048].lower():
+        return False, f"Arquivo '{nome}' não parece ser um OFX válido (cabeçalho OFX não encontrado)."
+
+    return True, ""
+
+
+def _categorizar_motivo_carga_arquivo(mensagem: str) -> str:
+    """Mapeia uma mensagem de erro (livre, já pensada para o usuário —
+    ver validar_entrada_csv/validar_entrada_ofx/validar_tamanho_arquivo)
+    para uma categoria fixa e curta, sem o nome do arquivo, para uso no
+    log estruturado (item 5): o log nunca grava a mensagem original,
+    que pode conter o nome do upload. As frases comparadas aqui são
+    templates fixos definidos neste mesmo módulo (item 1), não texto
+    livre do usuário — o casamento por substring é estável."""
+    texto = mensagem.lower()
+    if 'excede o limite' in texto:
+        return 'tamanho_excedido'
+    if 'não tem extensão' in texto:
+        return 'extensao_invalida'
+    if 'está vazio' in texto:
+        return 'arquivo_vazio'
+    if 'binári' in texto:
+        return 'arquivo_binario'
+    if 'cabeçalho' in texto:
+        return 'cabecalho_invalido'
+    if 'encoding' in texto:
+        return 'encoding_invalido'
+    if 'colunas obrigatórias' in texto:
+        return 'colunas_obrigatorias_faltando'
+    if 'não contém dados' in texto or 'não pôde ser interpretado' in texto:
+        return 'erro_parsing'
+    return 'erro_desconhecido'
 
 # --- Menu Customizado ---
 with st.sidebar:
@@ -244,25 +417,40 @@ def detectar_tipo_arquivo(nome_arquivo):
     else:
         return 'desconhecido'
 
+@st.cache_data(show_spinner=False)
+def _parsear_ofx_cacheado(conteudo: bytes) -> pd.DataFrame:
+    """Núcleo de parsing do OFX: isolado (só os bytes do arquivo, sem
+    Streamlit, sem sessão, sem nome de arquivo/conta) e cacheado por
+    hash dos bytes — mesmo motivo e mesma garantia de cópia-por-chamada
+    de `_parsear_csv_cacheado` acima. Informação dependente de sessão
+    (modo de validação por nome de arquivo, nome do upload) é aplicada
+    DEPOIS, em `processar_ofx`, nunca entra no que é cacheado aqui."""
+    from ofxparse import OfxParser
+    ofx = OfxParser.parse(io.BytesIO(conteudo))
+
+    transacoes = []
+    for account in ofx.accounts:
+        for transaction in account.statement.transactions:
+            transacoes.append({
+                'data': transaction.date,
+                'valor': float(transaction.amount),
+                'descricao': transaction.memo or transaction.payee or '',
+                'tipo': transaction.type,
+                'id': transaction.id
+            })
+
+    return pd.DataFrame(transacoes)
+
+
 # Função para processar arquivo OFX
 def processar_ofx(arquivo):
     """Processa arquivo OFX"""
     try:
-        from ofxparse import OfxParser
-        ofx = OfxParser.parse(io.BytesIO(arquivo.read()))
-        
-        transacoes = []
-        for account in ofx.accounts:
-            for transaction in account.statement.transactions:
-                transacoes.append({
-                    'data': transaction.date,
-                    'valor': float(transaction.amount),
-                    'descricao': transaction.memo or transaction.payee or '',
-                    'tipo': transaction.type,
-                    'id': transaction.id
-                })
-        
-        df = pd.DataFrame(transacoes)
+        arquivo.seek(0)
+        conteudo = arquivo.read()
+        arquivo.seek(0)
+
+        df = _parsear_ofx_cacheado(conteudo)
         if not df.empty:
             # Adicionar informação da conta ao DataFrame se estiver no modo validação
             if sistema_validacao:
@@ -271,7 +459,7 @@ def processar_ofx(arquivo):
                     df['conta_bancaria'] = conta
                     df['origem_arquivo'] = arquivo.name
                     df['tipo_arquivo'] = tipo
-        
+
         return df
     except Exception as e:
         st.error(f"Erro ao processar OFX: {e}")
@@ -856,6 +1044,7 @@ def processar_pdf(arquivo):
 def processar_arquivo(arquivo, tipo_arquivo):
     """Processa arquivo baseado no tipo"""
     tamanho_arquivo = getattr(arquivo, 'size', 0) or 0
+    _inicio_carga = time.time()
 
     valido, motivo = validar_tamanho_arquivo(arquivo)
     if not valido:
@@ -864,12 +1053,31 @@ def processar_arquivo(arquivo, tipo_arquivo):
             file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
             user=usuario_atual, success=False, error_message=motivo,
         )
+        get_structured_logger().log_carga_arquivo(
+            formato=tipo_arquivo, sucesso=False, motivo='tamanho_excedido',
+            registros=0, tamanho_bytes=tamanho_arquivo,
+            duracao_segundos=time.time() - _inicio_carga,
+        )
         return None
 
     try:
         df = None
 
         if tipo_arquivo == 'ofx':
+            valido_entrada, motivo_entrada = validar_entrada_ofx(arquivo)
+            if not valido_entrada:
+                st.error(f"❌ {motivo_entrada}")
+                audit.log_file_upload(
+                    file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
+                    user=usuario_atual, success=False, error_message=motivo_entrada,
+                )
+                get_structured_logger().log_carga_arquivo(
+                    formato=tipo_arquivo, sucesso=False,
+                    motivo=_categorizar_motivo_carga_arquivo(motivo_entrada),
+                    registros=0, tamanho_bytes=tamanho_arquivo,
+                    duracao_segundos=time.time() - _inicio_carga,
+                )
+                return None
             df = processar_ofx(arquivo)
         elif tipo_arquivo == 'cnab':
             df = processar_cnab(arquivo)
@@ -877,18 +1085,20 @@ def processar_arquivo(arquivo, tipo_arquivo):
             df = processar_pdf(arquivo)
         elif tipo_arquivo in ['csv', 'excel']:
             if tipo_arquivo == 'csv':
-                # Tentar diferentes encodings
-                for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']:
-                    try:
-                        arquivo.seek(0)
-                        df = pd.read_csv(arquivo, encoding=encoding)
-                        break
-                    except:
-                        continue
-                # Última tentativa
-                if df is None:
-                    arquivo.seek(0)
-                    df = pd.read_csv(arquivo)
+                valido_entrada, motivo_entrada, _encoding_usado, df = validar_entrada_csv(arquivo)
+                if not valido_entrada:
+                    st.error(f"❌ {motivo_entrada}")
+                    audit.log_file_upload(
+                        file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
+                        user=usuario_atual, success=False, error_message=motivo_entrada,
+                    )
+                    get_structured_logger().log_carga_arquivo(
+                        formato=tipo_arquivo, sucesso=False,
+                        motivo=_categorizar_motivo_carga_arquivo(motivo_entrada),
+                        registros=0, tamanho_bytes=tamanho_arquivo,
+                        duracao_segundos=time.time() - _inicio_carga,
+                    )
+                    return None
             else:
                 df = pd.read_excel(arquivo)
         
@@ -905,10 +1115,20 @@ def processar_arquivo(arquivo, tipo_arquivo):
                 file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
                 user=usuario_atual, success=True,
             )
+            get_structured_logger().log_carga_arquivo(
+                formato=tipo_arquivo, sucesso=True, motivo='sucesso',
+                registros=len(df), tamanho_bytes=tamanho_arquivo,
+                duracao_segundos=time.time() - _inicio_carga,
+            )
         else:
             audit.log_file_upload(
                 file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
                 user=usuario_atual, success=False, error_message="Nenhum dado extraído do arquivo",
+            )
+            get_structured_logger().log_carga_arquivo(
+                formato=tipo_arquivo, sucesso=False, motivo='nenhum_dado_extraido',
+                registros=0, tamanho_bytes=tamanho_arquivo,
+                duracao_segundos=time.time() - _inicio_carga,
             )
 
         return df
@@ -918,6 +1138,11 @@ def processar_arquivo(arquivo, tipo_arquivo):
         audit.log_file_upload(
             file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
             user=usuario_atual, success=False, error_message=str(e),
+        )
+        get_structured_logger().log_carga_arquivo(
+            formato=tipo_arquivo, sucesso=False, motivo='erro_desconhecido',
+            registros=0, tamanho_bytes=tamanho_arquivo,
+            duracao_segundos=time.time() - _inicio_carga,
         )
         return None
 
