@@ -13,7 +13,8 @@
 | 3 | 15 | 14 | 0 | 1 | Relatório executivo em PDF; status conforme revisão do squad |
 | 3b | 8 | 8 | 0 | 0 | Correções do relatório executivo; executado na Parte C (2 casos parciais: CT-F3B-03 e CT-F3B-04) |
 | 4 | 7 | 7 | 0 | 0 | Clareza do relatório executivo (pontes, legenda, resumo); executado na revisão por execução (pytest 191, E2E 5/5, PDF 9 páginas) |
-| 5 | 13 | 11 | 1 | 1 | 5 itens de robustez; verificação integrada (pytest 271, E2E 13/13, PDF 9 páginas idêntico ao baseline); o FAIL é o decimal `,` do CSV nos dados reais (CT-F5-05) |
+| 5 | 13 | 12 | 0 | 1 | 5 itens de robustez; verificação integrada (pytest 271, E2E 13/13, PDF 9 páginas idêntico ao baseline). O `FAIL` do decimal `,` no CSV real (CT-F5-05) foi corrigido na Fase 5b e passou a constar como `PASS` com evidência nova |
+| 5b | 8 | 7 | 0 | 1 | Gate de verificação após as 3 rodadas da Fase 5b (pytest 292, E2E 17/17, invariantes B × C, PDF Executivo de 9 páginas rasterizado); o `NÃO EXECUTADO` é a lista de itens fora do escopo (CT-F5B-08) |
 
 *Contagens feitas automaticamente sobre as linhas “Status de execução” de cada caso.*
 
@@ -2122,32 +2123,52 @@ conteúdo é idêntico ao das tabelas exibidas na tela.
 
 #### CT-F5-05 — Exportação CSV: separador decimal `,` nos dados reais
 
-**Objetivo:** Confirmar que os valores numéricos do CSV saem com vírgula
-decimal, conforme o formato exigido pelo item 2 (separador `;`, **decimal
-`,`**, BOM, datas `dd/mm/aaaa`).
+**Objetivo:** Confirmar que os valores numéricos do CSV **baixado pela
+interface no fluxo B × C real** saem com vírgula decimal, conforme o
+formato exigido pelo item 2 (separador `;`, **decimal `,`**, BOM, datas
+`dd/mm/aaaa`) — e não apenas em uma coluna numérica sintética.
 
-**Pré-condição:** Mesmo CSV baixado no CT-F5-04; teste unitário
-`test_csv_usa_virgula_como_decimal_em_coluna_numerica` presente.
+**Pré-condição:** Análise B × C executada na interface; CSVs das três
+abas de divergência baixáveis; testes unitários de
+`tests/test_export_divergencias.py` que chamam as funções reais de
+`pages/analise_dados.py`.
 
 **Passos:**
 
-1. Abrir o CSV baixado pela interface no cenário B × C real.
-2. Inspecionar a coluna `Valor_Bancário` linha a linha.
-3. Procurar qualquer valor com vírgula decimal.
-4. Comparar com o teste unitário, que cobre apenas uma coluna numérica
-   sintética.
+1. Executar a análise B × C na interface e baixar os três CSVs
+   (`📥 Exportar Divergências Bancárias`, `📥 Exportar Divergências
+   Contábeis`, `📥 Exportar Similaridades`).
+2. Inspecionar todas as células das colunas `Valor_*` de cada arquivo.
+3. Conferir que nenhuma célula permanece no padrão en-US `R$ 1.300,00`
+   / `R$ -60.50` e que todas casam com o padrão pt-BR `R$ 1.300,00` /
+   `R$ -60,50`.
+4. Reexecutar `pytest tests/test_export_divergencias.py -q` e conferir
+   que os casos novos usam a saída das funções reais de
+   `pages/analise_dados.py`.
 
-**Resultado esperado:** Todos os valores monetários com vírgula decimal.
+**Resultado esperado:** Todos os valores monetários com vírgula decimal
+nos três arquivos reais, sem perda de BOM, separador ou proteção contra
+fórmula.
 
-**Status de execução:** `FAIL` — no CSV **real** os valores saem com ponto
-decimal: `R$ -60.50`, `R$ -4.92`, `R$ 1,300.00`, `R$ -20.80`. A função
-aplica `decimal=','` apenas em colunas numéricas, mas as tabelas de
-divergência entregues pelo fluxo real já contêm valores formatados como
-texto no padrão en-US da interface, e o export os preserva. O teste unitário
-do item 2 passa porque usa uma coluna numérica sintética — o requisito “decimal
-`,`” **não é atendido nos dados reais**. Divergência **isolada e não
-corrigida** (a issue proíbe correção silenciosa na revisão); não altera
-números da conciliação, layout nem o PDF.
+**Status de execução:** `PASS` (reexecutado na Fase 5b, XCRE-50) —
+E2E real, três downloads do fluxo completo:
+
+| Arquivo | Células `Valor_*` em pt-BR | Amostra observada |
+|---|---|---|
+| `divergencias_bancario_sem_contabil.csv` | 4 de 4, **0** en-US | `R$ -60,50`, `R$ -4,92`, `R$ 1.300,00`, `R$ -20,80` |
+| `divergencias_contabil_sem_bancario.csv` | 4 de 4, **0** en-US | `R$ 50,63`, `R$ -62,50`, `R$ 1.400,00`, `R$ -25,80` |
+| `possiveis_correspondencias_similaridade.csv` | 4 de 4, **0** en-US | `R$ -60,50`, `R$ -62,50`, `R$ 1.300,00`, `R$ 1.400,00` |
+
+Os três arquivos seguem com BOM `ef bb bf`, separador `;`, datas
+`dd/mm/aaaa` e **0** células iniciadas por `=`, `+`, `-` ou `@`.
+Unidade: `pytest tests/test_export_divergencias.py -q` → **18 passed**,
+incluindo os 4 casos novos que constroem as tabelas chamando
+`_criar_tabela_bancario_sem_contabil` / `_criar_tabela_contabil_sem_bancario`
+/ `_criar_tabela_similaridades` de `pages/analise_dados.py` (não um
+DataFrame numérico avulso) e o caso de regressão de célula já em pt-BR.
+Correção em `modules/export_divergencias.py` (commit `ef2e18e`), sem
+mudança em `pages/analise_dados.py`. **O `FAIL` registrado na Fase 5
+está encerrado por esta evidência.**
 
 #### CT-F5-06 — Proteção contra injeção de fórmula no CSV
 
@@ -2210,6 +2231,11 @@ enfraquecida. **Impacto no cenário B × C: nenhum** (14 correspondências,
 77,8% e as somas seguem intactos — ver CT-F5-11); o efeito é apenas na
 identidade do par quando há duplicata de valor+data. O módulo de matching não
 foi tocado em nenhum dos 5 commits.
+**Atualização pós-Fase 5b:** o achado foi **corrigido** na Fase 5b (XCRE-50,
+commit `9ce69f6`); este teste virou
+`test_matching_ambiguidade_mesma_data_e_valor_e_deterministico_independente_da_ordem`
+e hoje afirma determinismo nas duas ordens — ver CT-F5B-04. O texto acima
+permanece como registro da verificação feita na Fase 5.
 
 #### CT-F5-08 — Cache do parsing por hash de conteúdo
 
@@ -2399,9 +2425,12 @@ verificados** nesta rodada:
 1. **Achado do matching (item 3), registrado sem correção:** ambiguidade de
    (valor, data) faz o id casado depender da ordem das linhas — ver
    CT-F5-07. Sem impacto nos números de B × C.
+   **Corrigido na Fase 5b** (XCRE-50, commit `9ce69f6`) — ver CT-F5B-04.
 2. **`FAIL` do decimal `,` no CSV real (item 2):** o requisito de formato só
    é atendido em colunas numéricas; nos dados reais o valor sai como
    `R$ -60.50` — ver CT-F5-05.
+   **Corrigido na Fase 5b** (XCRE-50, commit `ef2e18e`) e reexecutado com
+   evidência real — ver CT-F5-05 e CT-F5B-03.
 3. **Contagem divergente no relato do item 1:** declarado “22 casos novos”;
    o arquivo coleta **17** — ver CT-F5-03 (comportamento aprovado, contagem
    do relato não confere).
@@ -2414,3 +2443,369 @@ verificados** nesta rodada:
 6. **Bug preexistente em `modules/performance_optimizer.py`
    (`cache_manager` usa `time.time()` sem `import time`)** — fora do escopo
    da Fase 5, registrado pelo desenvolvedor do item 4 e não corrigido aqui.
+
+---
+
+## Fase 5b — CSV em pt-BR, desempate determinístico e testes de limites (gate de verificação)
+
+### Escopo, evidência e dependências
+
+Esta seção registra a **verificação por execução (gate completo)** da Fase 5b
+da issue XCRE-50, executada depois das três rodadas do desenvolvedor
+principal: `ef2e18e` (item 1 — CSV pt-BR), `9ce69f6` (item 2 — desempate
+determinístico) e `624d4f8` (item 3 — testes de limites/DoS/cache), todos
+construídos sobre `871e833` “docs: documentacao final fase 5”. **Nenhum
+arquivo de produção foi alterado nesta verificação**: a única edição foi
+`docs/casos-de-teste.md` e o PDF regerado a partir dele.
+
+**Ambiente desta execução (real, local):**
+
+- Checkout do revisor posicionado em `624d4f8` (`git log --oneline -3`
+  confere os 3 commits da Fase 5b; `git status` limpo antes de editar).
+- `python3 -m pytest tests/` — pytest 9.1.1, Python 3.10.12.
+- E2E: `streamlit run app.py` local (porta 8591), Chromium headless via
+  Playwright 1.62, banco de usuários, audit e log estruturado apontando
+  para um diretório de evidência próprio (fora dos caminhos padrão do
+  repositório); capturas de tela, CSVs baixados, PDF e JSON de resultados
+  gravados como evidência.
+- Somente dados sintéticos de `Exemplos/` (`B_1234490.ofx`,
+  `C_1234490.ofx`) e arquivos sintéticos criados na execução. **Nenhum
+  dado real foi usado.**
+- Baselines do PDF: PDF da Fase 5 (60.468 bytes, gerado em `6e78c14`) e
+  PDF baseline da Fase 4 (60.467 bytes, `7bf1e2b`), ambos produzidos pelo
+  mesmo fluxo E2E na verificação da XCRE-49.
+- Comandos do gate: `python3 -m pytest tests/ -q`; E2E via script Playwright
+  (`--repo <repo> --port 8591 --out <evidencias> --tag f5b`);
+  `python3 check_invariantes.py <repo>`; `pdfinfo` / `pdffonts` /
+  `pdftotext -layout` / `pdftoppm -r 72 -png` no PDF baixado.
+
+**Evidência desta rodada:**
+
+| Verificação | Resultado observado |
+|---|---|
+| Suíte completa | `pytest tests/ -q` → **292 passed, 1 skipped, 48 warnings in 30,92 s** (repetida 3×: 30,92 s / 30,39 s / 29,84 s, sempre 292+1) |
+| Linha de base da Fase 5 | 271 passed, 1 skipped → **+21 testes** = 4 (export CSV) + 1 (matching) + 16 (limites) |
+| Suíte focal do item 1 | `pytest tests/test_export_divergencias.py -q` → **18 passed** |
+| Suíte focal do item 2 | `pytest tests/test_matching_propriedades.py -q` → **18 passed** |
+| Suíte focal do item 3 | `pytest tests/test_limites_seguranca_fase5b.py -q` → **16 passed**; com validação/cache: **47 passed** |
+| E2E real (Streamlit + navegador) | **17 de 17 verificações `PASS`**, 0 `FAIL` |
+| CSV real em pt-BR (o `FAIL` do CT-F5-05) | bancário **4/4**, contábil **4/4**, similaridades **4/4** células `Valor_*` em pt-BR; **0** restantes em en-US; BOM e `;` intactos; 0 célula de fórmula |
+| Invariantes B × C (fora da UI) | 18 × 18, 11 + 3 = **14**, **77,8%**, efetiva **61,1%**, **4 + 4** divergências, somas 1.386,22 / 1.538,93, diferença líquida **147,55**, resíduo **0,00**, ponte “fecha” |
+| Invariantes na interface | `Transações Analisadas 18` (delta “14 com correspondência”), `Lançamentos Analisados 18`, `Cobertura de Análise 77.8%`, `Itens em Divergência 8`, `Correspondências 14` |
+| PDF Executivo | 60.465 bytes, WeasyPrint 70.0, A4, **9 páginas**, 4 faces Inter embutidas (`pdffonts`: emb/sub/uni = yes); varredura: 0 ocorrências de `admin123`, `password`, `Bearer`, `eyJ`, `Traceback`, `/home/`, `users.db` |
+| PDF × Fase 5 (`6e78c14`) | texto extraído **20.200 bytes nos dois**; diff = apenas o carimbo de hora (3 linhas) **e a ordem das 11 linhas da tabela “Casamentos exatos”**; ordenando as linhas e removendo o carimbo os textos ficam **idênticos**. Raster 72 dpi: **6 de 9 páginas byte a byte iguais**; p1/p8/p9 só no retângulo da hora (64–83 px, 0,013–0,017%); **p4 com 9.541 px (1,90%)** = a mesma tabela reordenada |
+| PDF × baseline Fase 4 (`7bf1e2b`) | **5 de 9 páginas byte a byte iguais**; p1/p8/p9 só o carimbo; p4 a mesma diferença de ordem (9.541 px) |
+| Log estruturado da mesma execução | 8 linhas JSONL válidas: `login` ×2, `carga_arquivo` ×4 (2 rejeições + 2 OFX com `registros=18`), `analise` ×1 (18/18/14/8), `geracao_relatorio` ×1 (executivo, 14 matches, 8 divergências) |
+
+**Limitações declaradas desta rodada:** (a) o squad não tem credencial Git —
+sem push e sem PR, os commits ficam só nos worktrees locais; (b) os casos de
+tempo real (`CT-AUTH-03` bloqueio de 15 min e `CT-AUTH-05` expiração de
+sessão) seguem **não executados**, por exigirem confirmação explícita do
+usuário; (c) o cache do parsing continua não observável pela interface —
+verificado só por testes instrumentados; (d) a injeção de fórmula segue
+comprovada só com payloads sintéticos, pois os dados B × C não contêm célula
+iniciada por `=`, `+`, `-` ou `@`; (e) a ordem das linhas da tabela
+“Casamentos exatos” do PDF mudou em relação às Fases 4/5 — conteúdo idêntico,
+decisão de aceite pendente com o líder/arquiteto (CT-F5B-07 e achado 1);
+(f) evidências de execução (telas, CSVs, PDF, rasters) ficam fora do
+repositório e não são entregáveis versionados; (g) tokens por rodada: o
+ambiente de execução não expõe essa métrica, então nenhum número é declarado;
+(h) revisão limitada a rodar e conferir — arquitetura, design e segurança
+mais profunda ficam com o arquiteto/revisor de segurança.
+
+#### CT-F5B-01 — Suíte completa de regressão após as três rodadas
+
+**Objetivo:** Rodar a suíte inteira depois das três rodadas da Fase 5b e
+comparar com a linha de base da Fase 5, confirmando que os acréscimos se
+explicam pelos testes novos.
+
+**Pré-condição:** Checkout em `624d4f8`; dependências instaladas.
+
+**Passos:**
+
+1. Executar `python3 -m pytest tests/ -q` (três vezes).
+2. Conferir total, ignorados, tempo e a lista de arquivos alterados
+   (`git diff 871e833..624d4f8 --stat`).
+3. Coletar a contagem por arquivo com `pytest --collect-only -q`.
+
+**Resultado esperado:** Tudo verde, com o único ignorado já presente na
+linha de base e o delta de testes explicado pelos três arquivos tocados.
+
+**Status de execução:** `PASS` — **292 passed, 1 skipped, 48 warnings** nas
+três execuções (30,92 s / 30,39 s / 29,84 s). Linha de base Fase 5: 271
+passed, 1 skipped. Delta **+21**, fechado exatamente:
+`tests/test_limites_seguranca_fase5b.py` **+16** (novo),
+`tests/test_export_divergencias.py` 14 → **18** (+4),
+`tests/test_matching_propriedades.py` 17 → **18** (+1). O ignorado continua
+sendo `tests/test_pluralizacao.py:94` (“gerar_relatorio_executivo exige
+DataFrames não vazios”), já existente antes das fases 5 e 5b.
+
+#### CT-F5B-02 — E2E real com Streamlit local e navegador
+
+**Objetivo:** Executar o fluxo completo pela interface real (login,
+validação de entrada, carga B × C, análise, exportações e relatório) e
+conferir cada etapa com evidência de tela/arquivo.
+
+**Pré-condição:** App local na porta 8591 com banco/log isolados; dados
+sintéticos de `Exemplos/`; script Playwright com Chromium headless.
+
+**Passos:**
+
+1. Subir `streamlit run app.py --server.port 8591 --server.headless true`.
+2. Logar como `admin`/`admin123`.
+3. Enviar CSV vazio e CSV binário com a validação por nome ativada.
+4. Enviar `B_1234490.ofx` e `C_1234490.ofx`, processar e conferir 18 × 18.
+5. Executar a análise e ler as métricas da tela.
+6. Baixar os três CSVs de divergência e conferir conteúdo.
+7. Gerar e baixar o PDF Executivo.
+8. Conferir o JSON de resultados (código, status e evidência de cada etapa).
+
+**Resultado esperado:** Todas as verificações `PASS`, sem exceção visível
+na interface.
+
+**Status de execução:** `PASS` — **17 de 17 verificações `PASS`, 0 `FAIL`**
+(`CT-F5-E2E-1a/1b/1c`, `2a`, `3a/3b/3c/3d`, `4a/4b/4c`,
+`CT-F5B-E2E-6a/6b/6c/6d`, `CT-F5-E2E-5a/5b`). Mensagens de validação em
+português, sem `Traceback` e sem caminho de arquivo; 18 × 18 na tela;
+cobertura `77.8%`; 14 correspondências; 8 divergências; CSVs e PDF
+baixados de verdade. Evidências: 4 capturas de tela de página inteira, o
+JSON de resultados, os 3 CSVs e o PDF.
+
+#### CT-F5B-03 — Exportação CSV em pt-BR nos dados reais (item 1)
+
+**Objetivo:** Confirmar por execução que a correção do item 1 atende nos
+**dados reais** do fluxo B × C, e não só em DataFrame sintético.
+
+**Pré-condição:** Análise B × C concluída na interface; commits `ef2e18e`
+e `624d4f8`; `modules/export_divergencias.py` com
+`_normalizar_moeda_texto_pt_br`.
+
+**Passos:**
+
+1. Baixar `📥 Exportar Divergências Bancárias`.
+2. Baixar `📥 Exportar Divergências Contábeis`.
+3. Baixar `📥 Exportar Similaridades`.
+4. Em cada arquivo, ler todas as células das colunas `Valor_*` e classificar
+   cada uma como pt-BR (`R$ -?\d{1,3}(\.\d{3})*,\d{2}`) ou en-US
+   (`R$ -?\d{1,3}(,\d{3})*\.\d{2}`).
+5. Conferir BOM, separador `;`, datas e ausência de célula de fórmula.
+6. `pytest tests/test_export_divergencias.py -q`.
+
+**Resultado esperado:** 100% das células monetárias em pt-BR nos três
+arquivos, com os demais requisitos do formato intactos.
+
+**Status de execução:** `PASS` — bancário 4/4, contábil 4/4, similaridades
+4/4; **0** célula en-US. Amostras reais baixadas: `R$ -60,50`,
+`R$ -4,92`, `R$ 1.300,00`, `R$ -20,80` (bancário), `R$ 50,63`,
+`R$ -62,50`, `R$ 1.400,00`, `R$ -25,80` (contábil). BOM `ef bb bf` e `;`
+presentes nos três; datas `dd/mm/aaaa`; **0** linhas iniciadas por `=`,
+`+`, `-` ou `@`. Unidade: **18 passed**. Detalhe da evidência e do teste
+em CT-F5-05 (reexecutado).
+
+#### CT-F5B-04 — Desempate determinístico do matching (item 2)
+
+**Objetivo:** Confirmar que, havendo duas linhas de extrato de mesmo valor
+e mesma data e um lançamento contábil equivalente, o par escolhido é o
+mesmo nas duas ordens de entrada, sem mudar números nem testes existentes.
+
+**Pré-condição:** `tests/test_matching_propriedades.py` com os casos
+novos; alteração restrita a `modules/data_analyzer.py::_match_valor_data_exata`.
+
+**Passos:**
+
+1. `git diff 871e833..624d4f8 -- modules/` e conferir que só
+   `data_analyzer.py` e `export_divergencias.py` mudaram.
+2. `pytest tests/test_matching_propriedades.py -q`.
+3. Identificar os dois casos de desempate e conferir que um deles roda a
+   mesma entrada nas duas permutações.
+4. Conferir que nenhum teste ganhou `skip`/`xfail` e que os invariantes de
+   B × C continuam verdes.
+
+**Resultado esperado:** 18 testes verdes, o par idêntico nas duas ordens e
+os números de B × C inalterados.
+
+**Status de execução:** `PASS` — **18 passed**.
+`test_matching_ambiguidade_mesma_data_e_valor_e_deterministico_independente_da_ordem`
+roda a mesma reprodução com `extrato` e `extrato.iloc[::-1]` e afirma o
+**mesmo** par nos dois casos (o teste que na Fase 5 documentava a
+ambiguidade foi substituído, conforme o critério de aceite);
+`test_desempate_usa_descricao_normalizada_e_nao_apenas_o_id_ou_a_posicao`
+prova que vence o conteúdo normalizado (`abacaxi` < `zebra`), não o id nem
+a posição física. Testes de propriedade com seed fixa (inversão de ordem,
+unicidade, recomposição de totais, idempência) seguem verdes.
+`tests/test_tolerancia_referencia_b_x_c.py` → **11 passed**, incluindo a
+asserção literal de 77,777…%. Os 14 matches, as somas e a ponte não mudaram
+(CT-F5B-06).
+
+#### CT-F5B-05 — Testes de limites, DoS, temporários e cache (item 3)
+
+**Objetivo:** Confirmar que existem e passam testes executáveis para
+arquivo com muitas linhas, CSV com colunas/linhas gigantes, OFX malformado
+com entidades expandidas, nome de arquivo com `../` e caracteres de
+controle, e cache de parsing (mesmo conteúdo não reparseia, conteúdo
+diferente invalida, chave não vaza caminho).
+
+**Pré-condição:** `tests/test_limites_seguranca_fase5b.py` presente;
+limites derivados de configuração existente (`MAX_FILE_SIZE_BYTES` =
+10 MiB).
+
+**Passos:**
+
+1. `pytest tests/test_limites_seguranca_fase5b.py -q`.
+2. `pytest tests/test_limites_seguranca_fase5b.py
+   tests/test_validacao_entrada_ofx_csv.py tests/test_importacao_limites.py
+   tests/test_cache_parsing.py -q`.
+3. Conferir a lista de casos coletados e a cobertura de cada classe de
+   entrada.
+
+**Resultado esperado:** Todos os casos novos verdes e a suíte de
+validação/cache íntegra.
+
+**Status de execução:** `PASS` — **16 passed** no arquivo novo e
+**47 passed** no conjunto com validação e cache (16 + 17 + 5 + 9).
+Cobertura observada: CSV de 50 mil linhas, 2.000 colunas e célula de 500 KB
+dentro do limite de 10 MiB, processado sem travar; OFX com DOCTYPE/ENTITY
+aninhados (“billion laughs”, ~3 M de caracteres se expandisse) sem
+expansão, parsing em milissegundos; `validar_formato_nome` rejeitando
+`../`, `..\`, NUL e quebra de linha; e prova comportamental de que dois
+uploads com o mesmo conteúdo mas nomes (inclusive maliciosos) diferentes
+resultam em **uma única** chamada real a `pd.read_csv`/`OfxParser.parse`.
+Nenhum defeito real foi revelado — nenhuma correção de produção decorreu
+destes testes.
+
+#### CT-F5B-06 — Invariantes B × C preservados
+
+**Objetivo:** Confirmar fora da interface, na tela e no PDF que os números
+de referência continuam idênticos aos da issue e das fases anteriores.
+
+**Pré-condição:** `Exemplos/B_1234490.ofx` e `Exemplos/C_1234490.ofx`;
+script independente que roda matching e ponte fora da interface.
+
+**Passos:**
+
+1. Executar o script de invariantes sobre os dois OFX.
+2. Ler as métricas exibidas pela interface após a análise.
+3. Conferir os mesmos números no texto do PDF baixado.
+
+**Resultado esperado:** 18 × 18, 14 correspondências, 77,8%, efetiva
+61,1%, 4 + 4 divergências, somas 1.386,22 / 1.538,93, diferença líquida
+147,55 e resíduo 0,00 nos três pontos de observação.
+
+**Status de execução:** `PASS` — fora da UI:
+`{"total_extrato": 18, "total_contabil": 18, "matches_exatos": 11,
+"matches_heuristicos": 3, "matches_total": 14, "cobertura_pct": 77.8,
+"cobertura_efetiva_pct": 61.1, "divergencias_extrato": 4,
+"divergencias_contabil": 4, "soma_divergencias_extrato": 1386.22,
+"soma_divergencias_contabil": 1538.93, "diferenca_liquida": 147.55,
+"ponte_valor_calculado": "R$ 147,55", "ponte_residuo": "R$ 0,00",
+"ponte_fecha": true}`. Na interface: `18`, `18`, delta `14 com
+correspondência`, `77.8%`, `8` divergências, `14` correspondências. No
+PDF: “77,8%” (4 ocorrências), “61,1%” (4), “Diferença líquida de
+R$ 147,55”, “Resíduo … R$ 0,00”, “Ponte fecha sem resíduo” e subtotais
+idênticos (`R$ -1.283,57` dos matches exatos nos dois lados).
+
+#### CT-F5B-07 — PDF Executivo: 9 páginas, rasterização e comparação com baseline
+
+**Objetivo:** Gerar o PDF Executivo pela interface, conferir páginas,
+formato, fontes e conteúdo sensível, rasterizar as 9 páginas e comparar
+com os baselines da Fase 5 e da Fase 4.
+
+**Pré-condição:** PDF baixado no E2E; PDFs baseline da XCRE-49;
+`pdfinfo`, `pdffonts`, `pdftotext` e `pdftoppm`.
+
+**Passos:**
+
+1. `pdfinfo` e `pdffonts` no PDF da Fase 5b.
+2. `pdftotext -layout` nos três PDFs e `diff` linha a linha.
+3. Repetir o diff com as linhas ordenadas e o carimbo de hora removido.
+4. `pdftoppm -r 72 -png` nas 9 páginas dos três PDFs e comparar pixel a
+   pixel (Pillow).
+5. Varredura do texto extraído por termos sensíveis.
+
+**Resultado esperado:** 9 páginas A4, fontes Inter embutidas, texto com os
+invariantes e nenhum termo sensível.
+
+**Status de execução:** `PASS` com **uma diferença de apresentação
+registrada**. `pdfinfo`: **9 páginas**, A4, WeasyPrint 70.0, 60.465 bytes.
+`pdffonts`: 4 faces Inter (Semi-Bold, Regular, Medium, Bold) com
+emb/sub/uni = yes. Varredura: **0** ocorrências de `admin123`, `password`,
+`Bearer`, `eyJ`, `Traceback`, `sqlite`, `/home/`, `users.db`.
+
+Comparação de texto: 20.200 bytes nos três PDFs. `diff` Fase 5b × Fase 5
+toca **só** as linhas 20, 398 e 450 (carimbo “Data de geração … 11:56”
+vs “10:51”) e as linhas 137–158 (tabela “Casamentos exatos (11)”).
+Ordenando as linhas e removendo o carimbo, os textos ficam **idênticos** —
+mesmas 11 linhas, mesmos valores, mesmo subtotal `R$ -1.283,57`. A
+diferença é de **ordem**: a lista saía na ordem de chegada do extrato e
+agora sai na ordem canônica (descrição normalizada) imposta pelo desempate
+do item 2.
+
+Rasterização: Fase 5b × Fase 5 → **6 de 9 páginas byte a byte iguais**;
+p1, p8 e p9 diferem em 81, 64 e 83 pixels (0,013–0,017%), todos dentro do
+retângulo da hora; **p4 difere em 9.541 pixels (1,90%)**, exatamente na
+região da tabela reordenada. Fase 5b × baseline Fase 4 → **5 de 9**
+iguais, mesma explicação. Layout, números e quantidade de páginas,
+portanto, **inalterados**; a única mudança observável é a ordem das linhas
+da tabela de matches exatos (ver achado 1).
+
+#### CT-F5B-08 — Itens não verificados nesta rodada
+
+**Objetivo:** Deixar explícito o que **não** foi verificado, para que nada
+seja presumido como aprovado.
+
+**Pré-condição:** — (é um caso de registro).
+
+**Passos:**
+
+1. Listar tudo que exigiria outro método, outra autorização ou outro papel.
+2. Marcar cada item como `NAO EXECUTADO`, sem simular resultado.
+
+**Resultado esperado:** Lista explícita, sem nenhum `PASS` presumido.
+
+**Status de execução:** `NAO EXECUTADO` — os seguintes pontos **não foram
+verificados** nesta rodada:
+
+- **`CT-AUTH-03` (liberação após 15 min de bloqueio) e `CT-AUTH-05`
+  (expiração de sessão):** casos de tempo real, exigem confirmação explícita
+  do usuário antes de executar — seguem não executados.
+- **Cache de parsing em reruns reais do Streamlit:** não observável pela
+  interface sem instrumentação; coberto apenas pelos testes unitários
+  instrumentados (16 + 9 casos).
+- **Injeção de fórmula com dado real malicioso:** os dados B × C não contêm
+  células iniciadas por `=`, `+`, `-` ou `@`; a proteção foi comprovada só
+  com payloads sintéticos.
+- **Determinismo da ordem do PDF em execuções repetidas:** a comparação de
+  ordem foi feita contra um único PDF desta execução e os dois baselines;
+  não se executou a geração do PDF duas vezes nesta rodada para provar
+  estabilidade temporal do carimbo/ordem.
+- **Relatório legado `Completo` (PyFPDF)** e **app publicado em nuvem:**
+  fora do escopo (apenas ambiente local).
+- **Revisão de segurança dedicada** (DoS adversarial, path traversal,
+  cache em rerun, CSV, log): etapa posterior a este gate, com outro papel.
+- **Arquitetura, design e segurança profunda:** fora do cargo de revisão
+  rápida — havendo dúvida nesse campo, escalar para o arquiteto/revisor de
+  segurança.
+- **Publicação (push/PR):** o squad não tem credencial Git; os commits da
+  Fase 5b e deste documento ficam somente nos worktrees locais.
+- **Tokens por rodada/agente:** o ambiente não expõe a métrica; nenhum
+  número é declarado.
+
+### Achados e divergências do gate (nenhuma correção aplicada)
+
+1. **Ordem das linhas da tabela “Casamentos exatos” do PDF mudou**
+   (efeito colateral do desempate do item 2): a tabela saía na ordem de
+   chegada das linhas do extrato e agora sai na ordem canônica de descrição
+   normalizada. Conteúdo **idêntico** (11 linhas, mesmos valores, mesmo
+   subtotal, texto idêntico após ordenação); layout e totais não mudaram;
+   a diferença aparece só no raster da página 4 (9.541 px, 1,90%). Nenhum
+   teste falhou e nenhum número de B × C mudou, portanto **não é `FAIL`
+   do gate** — mas é uma mudança observável na saída que não estava
+   relatada nas rodadas do desenvolvedor. **Decisão de aceite pendente com
+   o líder/arquiteto** (restringir a reordenação aos candidatos
+   efetivamente empatados, ou aceitar a ordem canônica como está).
+2. **Carimbo de data/hora do PDF** difere entre execuções (esperado);
+   isolado das comparações para não mascarar as diferenças reais.
+3. **Nenhum teste falhou nesta rodada** — nada foi devolvido às rodadas 1,
+   2 ou 3 por motivo de falha. Os dois achados acima são diferenças de
+   comportamento registradas, não reprovação de caso de teste.
+
