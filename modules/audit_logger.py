@@ -3,6 +3,7 @@ import pandas as pd
 import json
 import os
 import copy
+import re
 import sqlite3
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -13,6 +14,65 @@ from enum import Enum
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Saneamento de campos controlados pelo usuário (revisão de segurança
+# dedicada, SEC-R-05, XCRE-52): antes, um nome de usuário ou nome de
+# arquivo de upload chegava ao SQLite E ao `logger` padrão exatamente
+# como recebido — um username "alice\nINJECT" forjava uma segunda linha
+# num log lido como texto simples, e um `file_name` com caminho completo
+# (ex.: vindo de um objeto de upload malformado) vazava estrutura de
+# diretório interna. As constantes/funções abaixo são o ÚNICO ponto de
+# saneamento, aplicado dentro de `log_action` — o método por onde TODO
+# `log_*` deste módulo passa — então cobre persistência (SQLite) e
+# emissão no logger padrão com a mesma regra, sem depender de cada
+# call site lembrar de sanear.
+MAX_TEXTO_AUDITORIA_CARACTERES = int(os.getenv("CONCILIACAO_AUDIT_MAX_TEXTO_CARACTERES", "500"))
+_MARCADOR_TRUNCAMENTO = "...(truncado)"
+
+# C0 controls (0x00-0x1f) + DEL (0x7f): inclui CR e LF, que são a forma
+# mais direta de forjar uma linha extra num log/CSV lido linha a linha.
+_CONTROLES_AUDITORIA_RE = re.compile(r'[\x00-\x1f\x7f]')
+
+
+def _sanear_texto_auditoria(valor: Any, max_caracteres: int = MAX_TEXTO_AUDITORIA_CARACTERES) -> Any:
+    """Substitui caracteres de controle (CR, LF e demais C0/DEL) por
+    espaço e trunca para no máximo `max_caracteres`. Só atua em `str` —
+    números, bool, None, dict e list são devolvidos sem alteração, pois
+    não representam texto livre digitado/enviado por alguém."""
+    if not isinstance(valor, str):
+        return valor
+    sem_controles = _CONTROLES_AUDITORIA_RE.sub(' ', valor)
+    if len(sem_controles) > max_caracteres:
+        return sem_controles[:max_caracteres] + _MARCADOR_TRUNCAMENTO
+    return sem_controles
+
+
+def _sanear_nome_arquivo_auditoria(nome: Any) -> Any:
+    """Reduz um nome de arquivo controlado pelo usuário ao basename —
+    remove qualquer diretório/caminho (inclusive tentativa de path
+    traversal, ex.: "../../etc/x.csv" -> "x.csv") — e então aplica o
+    saneamento de texto normal. O NOME em si (escolhido por quem fez o
+    upload) é preservado; só o caminho é removido. Só atua em `str`."""
+    if not isinstance(nome, str):
+        return nome
+    return _sanear_texto_auditoria(os.path.basename(nome))
+
+
+def _sanear_valor_auditoria(valor: Any, chave: Optional[str] = None) -> Any:
+    """Aplica o saneamento acima recursivamente a dict/list — usado para
+    'details'/'metadata'/'transaction_ids', que podem conter texto livre
+    em qualquer nível de aninhamento. A chave 'file_name' (única usada
+    hoje para nome de upload, ver log_file_upload) recebe o saneamento de
+    NOME DE ARQUIVO em vez do saneamento de texto genérico; um campo novo
+    que carregue um nome de arquivo bruto deve usar esse mesmo nome de
+    chave para herdar a proteção automaticamente."""
+    if isinstance(valor, dict):
+        return {k: _sanear_valor_auditoria(v, chave=k) for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [_sanear_valor_auditoria(v, chave=chave) for v in valor]
+    if chave == 'file_name':
+        return _sanear_nome_arquivo_auditoria(valor)
+    return _sanear_texto_auditoria(valor)
 
 class AuditAction(Enum):
     """Ações que podem ser auditadas no sistema"""
@@ -143,7 +203,17 @@ class AuditLogger:
         
         log_id = str(uuid.uuid4())
         timestamp = datetime.now().isoformat()
-        
+
+        # Saneamento único (SEC-R-05, XCRE-52), ANTES de montar o
+        # log_entry: tudo que sai daqui — para self.audit_log, para
+        # _persist (SQLite) e para log_message (logger padrão, abaixo) —
+        # já usa os valores saneados.
+        user = _sanear_texto_auditoria(user)
+        description = _sanear_texto_auditoria(description)
+        details = _sanear_valor_auditoria(details or {})
+        transaction_ids = _sanear_valor_auditoria(transaction_ids or [])
+        metadata = _sanear_valor_auditoria(metadata or {})
+
         log_entry = {
             'log_id': log_id,
             'session_id': self.session_id,
@@ -179,12 +249,18 @@ class AuditLogger:
                         success: bool = True,
                         error_message: str = None) -> str:
         """Log de upload de arquivo"""
+        # Reduz ao basename ANTES de compor a descrição (SEC-R-05,
+        # XCRE-52): o saneamento genérico de `log_action` só remove
+        # caracteres de controle da string já pronta — se um caminho
+        # completo fosse interpolado aqui, ele sobreviveria dentro de
+        # `description` mesmo com o `details['file_name']` corrigido.
+        nome_arquivo_seguro = _sanear_nome_arquivo_auditoria(file_name)
         return self.log_action(
             action=AuditAction.FILE_UPLOAD,
             user=user,
-            description=f"Upload de arquivo {file_type}: {file_name}",
+            description=f"Upload de arquivo {file_type}: {nome_arquivo_seguro}",
             details={
-                'file_name': file_name,
+                'file_name': nome_arquivo_seguro,
                 'file_type': file_type,
                 'file_size': file_size,
                 'success': success,
