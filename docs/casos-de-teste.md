@@ -15,6 +15,7 @@
 | 4 | 7 | 7 | 0 | 0 | Clareza do relatório executivo (pontes, legenda, resumo); executado na revisão por execução (pytest 191, E2E 5/5, PDF 9 páginas) |
 | 5 | 13 | 12 | 0 | 1 | 5 itens de robustez; verificação integrada (pytest 271, E2E 13/13, PDF 9 páginas idêntico ao baseline). O `FAIL` do decimal `,` no CSV real (CT-F5-05) foi corrigido na Fase 5b e passou a constar como `PASS` com evidência nova |
 | 5b | 8 | 7 | 0 | 1 | Gate de verificação após as 3 rodadas da Fase 5b (pytest 292, E2E 17/17, invariantes B × C, PDF Executivo de 9 páginas rasterizado); o `NÃO EXECUTADO` é a lista de itens fora do escopo (CT-F5B-08) |
+| 5c | 8 | 7 | 0 | 1 | Gate de verificação após as 5 rodadas da Fase 5c (pytest 375, E2E 18/18, invariantes B × C, PDF Executivo de 9 páginas rasterizado); o `NÃO EXECUTADO` é a lista de itens fora do escopo (CT-F5C-08), incluindo os casos de tempo real `CT-AUTH-03`/`CT-AUTH-05` |
 
 *Contagens feitas automaticamente sobre as linhas “Status de execução” de cada caso.*
 
@@ -2809,3 +2810,377 @@ verificados** nesta rodada:
    2 ou 3 por motivo de falha. Os dois achados acima são diferenças de
    comportamento registradas, não reprovação de caso de teste.
 
+---
+
+## Fase 5c — Segurança: R-02, R-03, R-04, R-05 e R-07 (gate de verificação)
+
+### Escopo, evidência e dependências
+
+Esta seção registra a **verificação por execução (gate completo)** da Fase 5c
+da issue XCRE-52, executada depois das cinco rodadas do desenvolvedor
+principal: `c5a54cf` (SEC-R-02, PDF temporário privado), `4af64ab`
+(SEC-R-03, limites estruturais de OFX/CSV), `988578c` (SEC-R-04, injeção de
+fórmula precedida de controle/espaço), `cca3069` (SEC-R-05, saneamento de
+auditoria/log) e `b909bb0` (SEC-R-07, versões exatas das dependências),
+todos construídos sobre `a6ee333` (merge da revisão de segurança XCRE-51).
+`SEC-R-01` e `SEC-R-06` **não foram alterados**: continuam como riscos
+aceitos pelo usuário. **Nenhum arquivo de produção foi alterado nesta
+verificação**: a única edição foi `docs/casos-de-teste.md` e o PDF
+regenerado a partir dele.
+
+**Ambiente desta execução (real, local):**
+
+- Checkout do revisor posicionado em `b909bb0` (`git log --oneline -6`
+  confere os 5 commits da Fase 5c; `git status` limpo antes de editar).
+- `python3 -m pytest tests/ -q` — pytest 9.1.1, Python 3.10.12.
+- E2E: `streamlit run app.py` local (porta 8592), Chromium headless via
+  Playwright 1.62 (Chromium 151.0.7922.34), banco de usuários, audit e log
+  estruturado apontando para um diretório de evidência próprio (fora dos
+  caminhos padrão do repositório); capturas de tela, CSVs baixados, PDF,
+  JSON de resultados e raster gravados como evidência.
+- Somente dados sintéticos de `Exemplos/` (`B_1234490.ofx`,
+  `C_1234490.ofx`) e arquivos sintéticos criados na execução (CSV vazio e
+  CSV binário). **Nenhum dado real foi usado.**
+- Baseline do PDF: PDF da Fase 5b (60.465 bytes, gerado no gate da
+  XCRE-50) e o seu raster 72 dpi.
+- Comandos do gate: `python3 -m pytest tests/ -q` (3×); `python3 -m pytest
+  <arquivos novos/tocados> -q`; E2E via script Playwright
+  (`--repo <repo> --port 8592 --out <evidencias> --tag f5c`);
+  `python3 check_invariantes.py <repo>`; `pdfinfo` / `pdffonts` /
+  `pdftotext -layout` / `pdftoppm -r 72 -png` no PDF baixado;
+  `python3 scripts/gerar_pdf_casos_de_teste.py` após editar este arquivo.
+
+**Casos que dependem de espera de tempo real (identificados ANTES de
+executar):** `CT-AUTH-03` (liberação após os 15 min de bloqueio de login,
+`LOGIN_LOCKOUT_MINUTES = 15`) e `CT-AUTH-05` (expiração de sessão,
+`JWT_EXPIRATION_HOURS = 24`). Ambos foram **identificados e excluídos da
+execução** — nenhum dos casos novos da Fase 5c (`CT-F5C-01..07`) depende de
+tempo real, e as esperas internas do script E2E são apenas sincronização de
+interface, não verificação de comportamento no tempo. Os dois seguem `NAO
+EXECUTADO` até confirmação explícita do usuário (ver CT-F5C-08).
+
+**Evidência desta rodada:**
+
+| Verificação | Resultado observado |
+|---|---|
+| Suíte completa | `pytest tests/ -q` → **375 passed, 1 skipped, 48 warnings** (repetida 4×: 47,21 s / 54,17 s / 56,44 s / 54,10 s, sempre 375+1); `--collect-only` → **376 testes** |
+| Linha de base da Fase 5b | 292 passed, 1 skipped (293 coletados) → **+83 testes** |
+| Origem dos +83 | `tests/test_export_divergencias.py` 18 → 55 (**+37**); novos: `test_seguranca_limites_estruturais.py` **+19**, `test_seguranca_saneamento_auditoria.py` **+17**, `test_seguranca_pdf_temporario.py` **+6**, `test_seguranca_dependencias_fixadas.py` **+3**, `test_smoke_import_app.py` **+1** (83 no total) |
+| Único ignorado | `tests/test_pluralizacao.py:94` (“gerar_relatorio_executivo exige DataFrames não vazios”) — mesmo da linha de base, nenhum teste novo ganhou `skip` |
+| Suítes novas dos 5 itens | `pytest tests/test_seguranca_pdf_temporario.py tests/test_seguranca_limites_estruturais.py tests/test_seguranca_saneamento_auditoria.py tests/test_smoke_import_app.py tests/test_seguranca_dependencias_fixadas.py -q` → **46 passed** (6+19+17+1+3) |
+| Arquivos existentes tocados pelas rodadas | `pytest tests/test_export_divergencias.py tests/test_relatorio_executivo.py tests/test_limites_seguranca_fase5b.py -q` → **98 passed** (55+27+16) |
+| E2E real (Streamlit + navegador) | **18 de 18 verificações `PASS`**, 0 `FAIL` (~75 s, porta 8592, banco/log isolados, login sintético `admin`/`admin123` em banco zerado) |
+| Invariantes B × C (fora da UI) | 18 × 18, 11 + 3 = **14**, **77,8%**, efetiva **61,1%**, **4 + 4** divergências, somas 1.386,22 / 1.538,93, diferença líquida **147,55**, resíduo **0,00**, ponte “fecha” |
+| Invariantes na interface | `Transações Analisadas 18` (delta “14 com correspondência”), `Lançamentos Analisados 18`, `Cobertura de Análise 77.8%`, `Itens em Divergência 8`, `Correspondências 14`, `Taxa de Conciliação 77.8%` |
+| CSVs baixados no E2E | bancário 4 linhas, contábil 4, similaridades 4; BOM e `;` intactos; datas `dd/mm/aaaa`; valores `Valor_*` em pt-BR 4/4 em cada arquivo; **0** células iniciadas por `=`, `+`, `-` ou `@` |
+| PDF Executivo | 60.457 bytes, WeasyPrint 70.0, A4, **9 páginas**, 4 faces Inter embutidas (`pdffonts`: emb/sub/uni = yes), texto extraído **20.200 bytes**; varredura: **0** ocorrências de `admin123`, `password`, `Bearer`, `eyJ`, `Traceback`, `/home/`, `/tmp/`, `users.db` |
+| PDF × baseline Fase 5b | texto **20.200 bytes nos dois**; `diff` = **só as 3 linhas do carimbo de hora** (12 linhas de diff no total, nenhuma outra). Raster 72 dpi: **6 de 9 páginas byte a byte iguais**; p1/p8/p9 só dentro do retângulo da hora (114 / 91 / 121 px = 0,0227% / 0,0181% / 0,0241%); **p4 idêntica** (a reordenação registrada no achado F5B-07 não mudou mais) |
+| Caminho interno de PDF na interface | após gerar e baixar, texto da página + alertas **não** contêm `/tmp/`, `/home/`, nome temporário `relatorio_executivo_<hex>` nem `Traceback` |
+| Log estruturado da mesma execução | 8 linhas JSONL válidas: `login` ×2, `carga_arquivo` ×4, `analise` ×1, `geracao_relatorio` ×1 |
+| Pins × ambiente instalado | `pip list` confere com as 15 linhas do `requirements.txt` (streamlit 1.64.0, pandas 2.3.3, numpy 2.2.6, plotly 7.1.0, ofxparse 0.21, PyPDF2 3.0.1, fpdf 1.7.2, python-dotenv 1.2.3, PyJWT 2.3.0, requests 2.34.2, openpyxl 3.1.5, python-dateutil 2.9.0.post0, scikit-learn 1.7.2, weasyprint 70.0, Jinja2 3.1.6) |
+
+**Limitações declaradas desta rodada:** (a) o squad não tem credencial Git —
+sem push e sem PR, os commits ficam só nos worktrees locais; (b) `CT-AUTH-03`
+(15 min) e `CT-AUTH-05` (24 h) são casos de tempo real, **identificados e não
+executados**, aguardando confirmação explícita do usuário; (c) a
+verificação em Python 3.12/3.13 e a execução do `pip-audit` **não foram
+repetidas** nesta etapa — ficam com o registro da rodada 5 (`b909bb0`), que
+relata instalação limpa + smoke OK nas três versões e 11 vulnerabilidades em
+2 pacotes (`PyPDF2 3.0.1`, `PyJWT 2.3.0`, sem upgrade nesta fase); nesta
+execução só Python 3.10.12; (d) a **re-verificação independente de segurança**
+(novas provas de conceito de R-02 a R-05 contra o código corrigido) **não**
+foi feita aqui — é etapa do arquiteto, conforme a issue; (e) o cache do
+parsing continua não observável pela interface; (f) a injeção de fórmula
+segue comprovada só com payloads sintéticos, pois os dados B × C não contêm
+célula iniciada por `=`, `+`, `-` ou `@`; (g) evidências de execução (telas,
+CSVs, PDF, rasters, JSON) ficam fora do repositório e não são entregáveis
+versionados; (h) tokens: o ambiente não expõe a métrica de consumo deste
+agente, então nenhum número é declarado para esta rodada (as rodadas do
+Claude registraram as suas nos comentários da issue); (i) revisão limitada a
+rodar e conferir — arquitetura, design e segurança mais profunda ficam com o
+arquiteto/revisor de segurança.
+
+#### CT-F5C-01 — Suíte completa de regressão após as cinco rodadas
+
+**Objetivo:** Rodar a suíte inteira depois das cinco rodadas da Fase 5c e
+comparar com a linha de base da Fase 5b, confirmando que os acréscimos se
+explicam pelos testes novos.
+
+**Pré-condição:** Checkout em `b909bb0`; dependências instaladas.
+
+**Passos:**
+
+1. Executar `python3 -m pytest tests/ -q` (quatro vezes).
+2. Conferir total, ignorados, tempo e a lista de arquivos alterados
+   (`git diff --stat a6ee333..b909bb0`).
+3. Coletar a contagem por arquivo com `pytest --collect-only -q` e comparar
+   com a contagem no checkout da Fase 5b.
+
+**Resultado esperado:** Tudo verde, com o único ignorado já presente na
+linha de base e o delta de testes explicado pelos seis arquivos novos/tocados.
+
+**Status de execução:** `PASS` — **375 passed, 1 skipped, 48 warnings** nas
+quatro execuções (47,21 s / 54,17 s / 56,44 s / 54,10 s). Linha de base
+Fase 5b: 292 passed, 1 skipped (293 coletados). Delta **+83**, fechado
+exatamente: `test_export_divergencias.py` 18 → 55 (**+37**) e cinco arquivos
+novos — `test_seguranca_limites_estruturais.py` (19),
+`test_seguranca_saneamento_auditoria.py` (17),
+`test_seguranca_pdf_temporario.py` (6),
+`test_seguranca_dependencias_fixadas.py` (3) e
+`test_smoke_import_app.py` (1). O ignorado continua sendo
+`tests/test_pluralizacao.py:94`, já existente antes das fases 5, 5b e 5c.
+`git diff --stat a6ee333..b909bb0` → 14 arquivos, +1.297/−95 linhas (5 de
+produção: `modules/audit_logger.py`, `modules/export_divergencias.py`,
+`modules/report_executivo.py`, `pages/gerar_relatorio.py`,
+`pages/importacao_dados.py`, mais `requirements.txt`).
+
+#### CT-F5C-02 — E2E real com Streamlit local e navegador
+
+**Objetivo:** Executar o fluxo completo pela interface real (login sintético,
+validação de entrada, carga B × C, análise, exportações, geração e download
+do Executivo) e conferir cada etapa com evidência de tela/arquivo.
+
+**Pré-condição:** App local na porta 8592 com banco/log isolados; dados
+sintéticos de `Exemplos/`; script Playwright com Chromium headless.
+
+**Passos:**
+
+1. Subir `streamlit run app.py --server.port 8592 --server.headless true`
+   com `CONCILIACAO_DB_PATH`, `CONCILIACAO_AUDIT_DB_PATH` e
+   `CONCILIACAO_STRUCTURED_LOG_PATH` apontando para diretório de evidência.
+2. Logar como `admin`/`admin123` em banco recém-criado (vazio).
+3. Enviar CSV vazio e CSV binário com a validação por nome ativada.
+4. Enviar `B_1234490.ofx` e `C_1234490.ofx`, processar e conferir 18 × 18.
+5. Executar a análise e ler as métricas da tela.
+6. Baixar os três CSVs de divergência e conferir conteúdo.
+7. Gerar e baixar o PDF Executivo.
+8. Conferir o texto da página e os alertas pós-geração por caminho interno
+   (CT-F5C-07) e o JSON de resultados.
+
+**Resultado esperado:** Todas as verificações `PASS`, sem exceção visível na
+interface.
+
+**Status de execução:** `PASS` — **18 de 18 verificações `PASS`, 0 `FAIL`**
+(`CT-F5-E2E-1a/1b/1c`, `2a`, `3a/3b/3c/3d`, `4a/4b/4c`,
+`CT-F5B-E2E-6a/6b/6c/6d`, `CT-F5-E2E-5a/5b`, `CT-F5C-E2E-6a`). Mensagens de
+validação em português, sem `Traceback` e sem caminho de arquivo; 18 × 18 na
+tela; cobertura `77.8%`; 14 correspondências; 8 divergências; CSVs e PDF
+baixados de verdade. Evidências: 4 capturas de tela de página inteira, o
+JSON de resultados, os 3 CSVs e o PDF. Observação: `CT-F5-E2E-5a` foi
+adaptado nesta rodada (ver achado 1).
+
+#### CT-F5C-03 — Invariantes B × C preservados
+
+**Objetivo:** Confirmar fora da interface, na tela e no PDF que os números de
+referência continuam idênticos aos da issue e das fases anteriores.
+
+**Pré-condição:** `Exemplos/B_1234490.ofx` e `Exemplos/C_1234490.ofx`;
+script independente que roda matching e ponte fora da interface.
+
+**Passos:**
+
+1. `python3 check_invariantes.py <repo>` e comparar com os números da issue.
+2. Conferir as métricas exibidas após a análise no E2E.
+3. `pdftotext -layout` no PDF baixado e procurar cobertura, diferenças,
+   resíduo e subtotais.
+
+**Resultado esperado:** 18 × 18, 14 matches (11 exatos + 3 heurísticos),
+77,8% de cobertura, 61,1% efetiva, 4 + 4 divergências, diferença líquida
+147,55 e resíduo 0,00.
+
+**Status de execução:** `PASS` — fora da UI: `total_extrato 18`,
+`total_contabil 18`, `matches_exatos 11`, `matches_heuristicos 3`,
+`matches_total 14`, `cobertura_pct 77.8`, `cobertura_efetiva_pct 61.1`,
+`divergencias_extrato 4`, `divergencias_contabil 4`, somas `1386.22` e
+`1538.93`, `diferenca_liquida 147.55`, `ponte_residuo "R$ 0,00"`,
+`ponte_fecha true`. Na interface: `18`, `18`, delta `14 com
+correspondência`, `77.8%`, `8` divergências, `14` correspondências. No PDF:
+texto com “77,8%”, “61,1%”, “Diferença líquida de R$ 147,55” e “Resíduo …
+R$ 0,00”, idêntico ao baseline da Fase 5b além do carimbo.
+
+#### CT-F5C-04 — PDF Executivo: 9 páginas, rasterização e comparação com baseline
+
+**Objetivo:** Conferir páginas, formato, fontes e conteúdo sensível do PDF
+baixado no E2E, rasterizar as 9 páginas e compará-las com o baseline da
+Fase 5b.
+
+**Pré-condição:** PDF baixado no E2E; PDF e raster baseline da Fase 5b;
+`pdfinfo`, `pdffonts`, `pdftotext` e `pdftoppm`.
+
+**Passos:**
+
+1. `pdfinfo` e `pdffonts` no PDF da Fase 5c.
+2. `pdftotext -layout` nos dois PDFs e `diff` linha a linha.
+3. `pdftoppm -r 72 -png` nas 9 páginas dos dois PDFs e comparar byte a
+   byte/pixel a pixel (Pillow).
+4. Varredura do texto extraído por termos sensíveis.
+
+**Resultado esperado:** 9 páginas A4, fontes Inter embutidas, texto com os
+invariantes, nenhum termo sensível e diferença limitada ao carimbo de hora.
+
+**Status de execução:** `PASS` — `pdfinfo`: **9 páginas**, A4, WeasyPrint
+70.0, 60.457 bytes. `pdffonts`: 4 faces Inter (Semi-Bold, Regular, Medium,
+Bold) com emb/sub/uni = yes. Varredura: **0** ocorrências de `admin123`,
+`password`, `Bearer`, `eyJ`, `Traceback`, `/home/`, `/tmp/`, `users.db`.
+
+Comparação de texto: 20.200 bytes nos dois PDFs; `diff` com **12 linhas**,
+todas referentes às 3 ocorrências do carimbo “Data de geração”
+(11:56 → 18:12). Fora do carimbo, o texto é **idêntico**.
+
+Rasterização: **6 de 9 páginas byte a byte iguais**; p1, p8 e p9 diferem em
+114, 91 e 121 pixels (0,0227%, 0,0181%, 0,0241%), todos dentro do
+retângulo da hora; **p4 idêntica** — ou seja, esta rodada **não** introduziu
+nenhuma diferença de layout em relação ao baseline imediato da Fase 5b
+(a reordenação da tabela “Casamentos exatos” registrada no achado F5B-07
+permanece como estava, não reavaliada aqui).
+
+#### CT-F5C-05 — Testes dos itens de segurança R-02, R-03, R-04 e R-05 por execução
+
+**Objetivo:** Rodar os testes que cobrem cada achado corrigido e os arquivos
+existentes que as rodadas tocaram, confirmando que passam no código
+corrigido.
+
+**Pré-condição:** Cinco arquivos novos de teste presentes; três arquivos
+existentes ajustados pelas rodadas.
+
+**Passos:**
+
+1. `pytest tests/test_seguranca_pdf_temporario.py
+   tests/test_seguranca_limites_estruturais.py
+   tests/test_seguranca_saneamento_auditoria.py -q` (R-02, R-03, R-05).
+2. `pytest tests/test_export_divergencias.py -q` (R-04).
+3. Repetir os três arquivos novos mais `test_smoke_import_app.py` e
+   `test_seguranca_dependencias_fixadas.py` em uma única execução.
+4. Rodar também os arquivos existentes tocados:
+   `test_export_divergencias.py`, `test_relatorio_executivo.py`,
+   `test_limites_seguranca_fase5b.py`.
+
+**Resultado esperado:** Todos os casos verdes, sem `skip` novo.
+
+**Status de execução:** `PASS` — cinco arquivos novos de segurança/smoke →
+**46 passed** (6 R-02 + 19 R-03 + 17 R-05 + 3 R-07 + 1 smoke);
+`tests/test_export_divergencias.py` → **55 passed** (37 casos novos de
+payload de fórmula, R-04); conjunto `export_divergencias +
+relatorio_executivo + limites_seguranca_fase5b` → **98 passed** (55 + 27 +
+16). Reserva de honestidade: o que se comprovou aqui é que **os testes
+passam contra o código corrigido**; a afirmação de que reproduziam o achado
+antes da correção (falha verificada antes do `fix`) é registro das rodadas do
+desenvolvedor e não foi reexecutada nesta etapa.
+
+#### CT-F5C-06 — Dependências fixadas (R-07) conferidas neste ambiente
+
+**Objetivo:** Conferir por execução que o `requirements.txt` tem versões
+exatas, que batem com o ambiente que roda a suíte, e que o app importa via
+Streamlit AppTest.
+
+**Pré-condição:** `requirements.txt` alterado pela rodada 5; venv do revisor
+(Python 3.10.12).
+
+**Passos:**
+
+1. `cat requirements.txt` e `pip list` → comparar linha a linha.
+2. `pytest tests/test_seguranca_dependencias_fixadas.py -q` (travas de
+   versão exata, `weasyprint==70.0`, `Jinja2==3.1.6`, `packages.txt`
+   intacto).
+3. `pytest tests/test_smoke_import_app.py -q` (`import app` via AppTest).
+
+**Resultado esperado:** 15 dependências diretas com `==`, todas batendo com o
+ambiente instalado, `packages.txt` sem alteração e smoke verde.
+
+**Status de execução:** `PASS` nas verificações executadas nesta rodada —
+`pip list` confere com as **15** linhas do `requirements.txt`
+(streamlit 1.64.0, pandas 2.3.3, numpy 2.2.6, plotly 7.1.0, ofxparse 0.21,
+PyPDF2 3.0.1, fpdf 1.7.2, python-dotenv 1.2.3, PyJWT 2.3.0, requests 2.34.2,
+openpyxl 3.1.5, python-dateutil 2.9.0.post0, scikit-learn 1.7.2,
+weasyprint 70.0, Jinja2 3.1.6); testes de travamento → **3 passed**; smoke de
+importação → **1 passed**; `git diff --stat` confirma `packages.txt` fora da
+lista de arquivos alterados. **Não repetido aqui:** instalação limpa em
+Python 3.12/3.13 e `pip-audit` (registro da rodada 5, ver CT-F5C-08).
+
+#### CT-F5C-07 — Nenhum caminho interno de PDF temporário na interface (R-02 no E2E)
+
+**Objetivo:** Observar na interface real, depois de gerar e baixar o
+Executivo, que a correção do R-02 não vaza o caminho do arquivo temporário e
+não deixa erro visível.
+
+**Pré-condição:** E2E com geração e download do PDF concluídos (CT-F5C-02).
+
+**Passos:**
+
+1. Depois do download, ler o texto completo da página e os alertas.
+2. Procurar `/tmp/`, `/home/`, nome temporário `relatorio_executivo_<hex>`
+   e `Traceback`.
+3. Conferir o mesmo padrão nas mensagens de validação do cenário de entrada.
+
+**Resultado esperado:** Nenhum desses padrões presente; download entrega o
+PDF íntegro.
+
+**Status de execução:** `PASS` — `vazamento=False traceback=False`; alertas
+da tela após a geração mostram apenas conteúdo do relatório (“Total em
+divergência: R$ 1,386.22 / Itens: 4”, “Total em divergência: R$ 1,538.93 /
+Itens: 4”, “2 possíveis correspondências identificadas”); o PDF baixado tem
+60.457 bytes e 9 páginas. Este é um **ponto de observação no fluxo E2E**, não
+a re-verificação de segurança do R-02 (prova de conceito com inspect de
+permissões, nome previsível e `finally`) — essa fica com o arquiteto.
+
+#### CT-F5C-08 — Itens não verificados nesta rodada
+
+**Objetivo:** Deixar explícito o que **não** foi verificado, para que nada
+seja presumido como aprovado.
+
+**Pré-condição:** — (é um caso de registro).
+
+**Passos:**
+
+1. Listar tudo que exigiria outro método, outra autorização ou outro papel.
+2. Marcar cada item como `NAO EXECUTADO`, sem simular resultado.
+
+**Resultado esperado:** Lista explícita, sem nenhum `PASS` presumido.
+
+**Status de execução:** `NAO EXECUTADO` — os seguintes pontos **não foram
+verificados** nesta rodada:
+
+- **`CT-AUTH-03` (liberação após 15 min de bloqueio) e `CT-AUTH-05`
+  (expiração de sessão, `JWT_EXPIRATION_HOURS = 24`):** casos de tempo real,
+  **identificados antes de executar**; exigem confirmação explícita do
+  usuário para a espera (15 min e até 24 h) — seguem não executados.
+- **Instalação limpa em Python 3.12 e 3.13 e `pip-audit`:** não repetidos
+  nesta etapa; registro da rodada 5 (`b909bb0`), que relata smoke `OK` nas
+  três versões e 11 vulnerabilidades em 2 pacotes (`PyPDF2 3.0.1`,
+  `PyJWT 2.3.0`, sem upgrade). Nesta execução só Python 3.10.12.
+- **Re-verificação independente de segurança (R-02, R-03, R-04, R-05):**
+  provas de conceito contra o código corrigido — etapa do arquiteto, fora
+  desta rodada.
+- **Reprovação pré-correção dos testes novos:** não se executou a suíte
+  contra o código anterior para confirmar que os testes falhavam antes; só
+  se confirmou que passam depois.
+- **Cache de parsing em reruns reais do Streamlit:** não observável pela
+  interface sem instrumentação.
+- **Injeção de fórmula com dado real malicioso:** os dados B × C não contêm
+  células iniciadas por `=`, `+`, `-` ou `@`; proteção comprovada só com
+  payloads sintéticos.
+- **Relatório legado `Completo` (PyFPDF)** e **app publicado em nuvem:**
+  fora do escopo (apenas ambiente local).
+- **Publicação (push/PR):** o squad não tem credencial Git; os commits ficam
+  somente nos worktrees locais.
+- **Tokens desta rodada:** o ambiente não expõe a métrica de consumo deste
+  agente; nenhum número é declarado.
+
+### Achados e divergências do gate (nenhuma correção aplicada)
+
+1. **Roteiro do E2E do formato do relatório (mudança de roteiro, não
+   `FAIL`):** `CT-F5-E2E-5a` esperava o selectbox “Formato do Relatório”;
+   o seletor foi removido na XCRE-51 (relatório único Executivo), então o
+   passo foi adaptado para verificar a ausência do seletor. Registrado para
+   que a mudança de roteiro não se confunda com resultado.
+2. **Nenhum teste falhou nesta rodada** — nada foi devolvido às rodadas 1 a 5
+   por motivo de falha.
+3. **`pip-audit` (registro da rodada 5, não repetido aqui):** 11
+   vulnerabilidades conhecidas em 2 pacotes (`PyPDF2 3.0.1`,
+   `PyJWT 2.3.0`); a rodada 5 deliberadamente não fez upgrade. A decisão de
+   subir as versões (com reexecução dos testes de login/token) segue pendente
+   com o squad/usuário.
+4. **Achado F5B-07 (ordem da tabela “Casamentos exatos”):** não reavaliado —
+   o PDF desta rodada é textualmente idêntico ao da Fase 5b além do carimbo
+   e o raster de p4 é byte a byte igual; a decisão de aceite continua pendente
+   com o líder/arquiteto.
