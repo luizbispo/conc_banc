@@ -17,6 +17,9 @@ Contrato de dados de entrada (reaproveitado, sem duplicar cálculo):
 import base64
 import os
 import re
+import secrets
+import shutil
+import stat
 import tempfile
 from collections import Counter
 from datetime import datetime
@@ -897,9 +900,13 @@ def gerar_relatorio_executivo(
     conta_analisada: Optional[str] = None,
     meta_cobertura: Optional[str] = None,
     **kwargs,
-) -> str:
-    """Gera o relatório Executivo em PDF e retorna o caminho do arquivo
-    gerado. Levanta ValueError para pré-condições ausentes (sem análise,
+) -> bytes:
+    """Gera o relatório Executivo em PDF e retorna os BYTES do arquivo
+    gerado (revisão de segurança XCRE-51/SEC-R-02: o PDF é escrito num
+    diretório privado por execução, com nome imprevisível, e o
+    arquivo/diretório são apagados em `finally` antes de retornar — nunca
+    fica um artefato em disco após a chamada, nem em caso de exceção).
+    Levanta ValueError para pré-condições ausentes (sem análise,
     DataFrame vazio) — quem chama (pages/gerar_relatorio.py) trata isso
     como falha, sem oferecer um PDF parcial."""
     if resultados_analise is None:
@@ -925,9 +932,15 @@ def gerar_relatorio_executivo(
     template = _env.get_template("relatorio_executivo.html.j2")
     html_renderizado = template.render(**contexto)
 
-    temp_dir = tempfile.gettempdir()
-    pdf_path = os.path.join(
-        temp_dir, f"relatorio_executivo_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.pdf"
-    )
-    HTML(string=html_renderizado, base_url=None, url_fetcher=_url_fetcher_seguro).write_pdf(pdf_path)
-    return pdf_path
+    # Diretório privado por execução (0700, criado só para este PDF) com
+    # nome de arquivo imprevisível (token aleatório, não timestamp) —
+    # nenhum outro usuário do host consegue prever ou listar o caminho.
+    temp_dir = tempfile.mkdtemp(prefix="relatorio_executivo_")
+    pdf_path = os.path.join(temp_dir, f"{secrets.token_hex(16)}.pdf")
+    try:
+        HTML(string=html_renderizado, base_url=None, url_fetcher=_url_fetcher_seguro).write_pdf(pdf_path)
+        os.chmod(pdf_path, stat.S_IRUSR | stat.S_IWUSR)  # 0600
+        with open(pdf_path, "rb") as pdf_file:
+            return pdf_file.read()
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)

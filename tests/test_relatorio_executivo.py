@@ -80,9 +80,15 @@ def resultados_b_x_c():
 
 
 @pytest.fixture(scope="module")
-def pdf_executivo_b_x_c(resultados_b_x_c):
+def pdf_executivo_b_x_c(resultados_b_x_c, tmp_path_factory):
+    # gerar_relatorio_executivo devolve BYTES (revisão de segurança
+    # XCRE-51/SEC-R-02: nenhum arquivo temporário sobrevive à chamada).
+    # Os testes abaixo precisam de um caminho real (PdfReader, pdfinfo,
+    # pdffonts, pdftoppm), então os bytes são gravados aqui, num diretório
+    # de teste descartável — não no diretório privado que o próprio
+    # gerador já apagou.
     resultados, extrato, contabil = resultados_b_x_c
-    pdf_path = gerar_relatorio_executivo(
+    pdf_bytes = gerar_relatorio_executivo(
         resultados_analise=resultados,
         extrato_df=extrato,
         contabil_df=contabil,
@@ -92,7 +98,9 @@ def pdf_executivo_b_x_c(resultados_b_x_c):
         periodo="15/06/2025 a 16/07/2025",
         conta_analisada="1234490",
     )
-    return pdf_path
+    pdf_path = tmp_path_factory.mktemp("pdf_executivo_b_x_c") / "relatorio.pdf"
+    pdf_path.write_bytes(pdf_bytes)
+    return str(pdf_path)
 
 
 def _extrair_texto(pdf_path: str) -> str:
@@ -442,7 +450,7 @@ def test_nenhuma_pagina_do_corpo_fica_com_mais_de_metade_vazia(pdf_executivo_b_x
 
 # --- CT-F3-13: escape de HTML e bloqueio de recurso remoto ---
 
-def test_descricao_maliciosa_e_escapada_no_pdf_gerado():
+def test_descricao_maliciosa_e_escapada_no_pdf_gerado(tmp_path):
     payload = "<script>alert('x')</script><img src=\"https://exemplo.invalid/roubo\">"
     extrato = pd.DataFrame({
         "id": [1],
@@ -458,7 +466,7 @@ def test_descricao_maliciosa_e_escapada_no_pdf_gerado():
     })
     resultados = {"matches": [], "excecoes": []}
 
-    pdf_path = gerar_relatorio_executivo(
+    pdf_bytes = gerar_relatorio_executivo(
         resultados_analise=resultados,
         extrato_df=extrato,
         contabil_df=contabil,
@@ -467,8 +475,10 @@ def test_descricao_maliciosa_e_escapada_no_pdf_gerado():
         periodo="15/06/2025 a 20/06/2025",
         conta_analisada="0000000",
     )
-    assert os.path.exists(pdf_path)
-    texto = _extrair_texto(pdf_path)
+    assert len(pdf_bytes) > 0
+    pdf_path = tmp_path / "relatorio.pdf"
+    pdf_path.write_bytes(pdf_bytes)
+    texto = _extrair_texto(str(pdf_path))
     # O texto do script aparece como TEXTO (renderizado no PDF), nunca
     # como marcação HTML ativa — o teste de segurança real é que o
     # Jinja2 (autoescape=True) nunca produziu uma tag <script> literal
