@@ -220,6 +220,13 @@ def calcular_ponte(
     )
     alvo = round(saldo_contabil - saldo_extrato, 2)
     residuo = round(alvo - valor_calculado, 2)
+    # Passagem explícita da ponte DETALHADA (soma dos itens em aberto, sem
+    # o ajuste por similaridade) para a ponte COMPACTA acima (issue
+    # XCRE-48, item 1): mesmo `soma_diferencas_similaridade`, mas exibido
+    # como operação de sinal único ("148,55 - 1,00 = 147,55") em vez do
+    # valor com sinal embutido ("+ R$ -1,00"), que confunde quem não é
+    # da área.
+    ajuste_similaridade_operador = "-" if soma_diferencas_similaridade < 0 else "+"
     return {
         "liquido_extrato_aberto": liquido_extrato_aberto,
         "liquido_extrato_aberto_fmt": _fmt_valor(liquido_extrato_aberto),
@@ -227,6 +234,8 @@ def calcular_ponte(
         "liquido_contabil_aberto_fmt": _fmt_valor(liquido_contabil_aberto),
         "soma_diferencas_similaridade": soma_diferencas_similaridade,
         "soma_diferencas_similaridade_fmt": _fmt_valor(soma_diferencas_similaridade),
+        "ajuste_similaridade_abs_fmt": _fmt_valor(abs(soma_diferencas_similaridade)),
+        "ajuste_similaridade_operador": ajuste_similaridade_operador,
         "valor_calculado": valor_calculado,
         "valor_calculado_fmt": _fmt_valor(valor_calculado),
         "alvo": alvo,
@@ -386,6 +395,25 @@ def _montar_ponte_detalhada(
         "residuo": residuo,
         "residuo_fmt": _fmt_valor(residuo),
         "fecha": abs(residuo) < RESIDUO_TOLERANCIA,
+    }
+
+
+def _resumo_itens_abertos(linhas_pares: List[Dict], total_sem_par: int) -> Dict[str, Any]:
+    """Resumo do início da seção 5 (issue XCRE-48, item 3): quantos dos
+    itens em aberto estão em pares prováveis apontados pelo sistema,
+    quantos em pares por hipótese do analista, e quantos seguem sem par
+    nenhum — derivado da MESMA saída de `_construir_ponte_detalhada`
+    usada na tabela abaixo, nunca recalculado ou codificado à parte.
+    Cada par conta os DOIS lados (extrato + contábil) como itens
+    individuais em aberto, para a soma bater com o total de itens em
+    aberto (não com o número de pares)."""
+    pares_provaveis = sum(1 for l in linhas_pares if l["origem"] == "sistema") * 2
+    pares_hipotese = sum(1 for l in linhas_pares if l["origem"] == "hipotese") * 2
+    return {
+        "pares_provaveis": pares_provaveis,
+        "pares_hipotese": pares_hipotese,
+        "sem_par": total_sem_par,
+        "total": pares_provaveis + pares_hipotese + total_sem_par,
     }
 
 
@@ -722,6 +750,7 @@ def montar_contexto_executivo(
         linhas_ponte_pares, nao_pareados_extrato, nao_pareados_contabil,
         liquido_contabil_aberto, liquido_extrato_aberto,
     )
+    resumo_itens_abertos = _resumo_itens_abertos(linhas_ponte_pares, ponte_detalhada["total_sem_par"])
     exposicao = _calcular_exposicao_agrupada(linhas_ponte_pares, nao_pareados_extrato, nao_pareados_contabil)
 
     alertas = _calcular_alertas(
@@ -844,6 +873,7 @@ def montar_contexto_executivo(
         "ponte": ponte,
         "pares_provaveis_linhas": pares_provaveis_linhas,
         "ponte_detalhada": ponte_detalhada,
+        "resumo_itens_abertos": resumo_itens_abertos,
         "exposicao": exposicao,
         "alertas": alertas,
         "recomendacoes": recomendacoes,

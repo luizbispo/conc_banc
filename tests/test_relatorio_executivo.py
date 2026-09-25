@@ -11,6 +11,7 @@ fixture sintético já usado na fase 2 para o cenário de referência).
 """
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -190,6 +191,119 @@ def test_ponte_mostra_residuo_explicito_quando_dados_sao_inconsistentes():
     assert ponte["fecha"] is False
     assert ponte["residuo"] == pytest.approx(-1.00, abs=0.01)
     assert ponte["residuo_fmt"] != "R$ 0,00"
+
+
+# --- XCRE-48 item 1: passagem explícita da ponte detalhada (R$ 148,55) para a compacta (R$ 147,55) ---
+
+def test_ponte_expoe_ajuste_de_similaridade_como_operacao_de_sinal_unico():
+    """A ponte deve expor o ajuste por similaridade como uma operação de
+    sinal único (ex.: "148,55 - 1,00 = 147,55"), não como um valor com
+    sinal embutido ("+ R$ -1,00"), para que a passagem da ponte
+    detalhada (148,55) para a compacta (147,55) fique clara para
+    leigo."""
+    ponte = calcular_ponte(
+        saldo_extrato=-140.88, saldo_contabil=6.67,
+        liquido_extrato_aberto=1213.78, liquido_contabil_aberto=1362.33,
+        soma_diferencas_similaridade=-1.00,
+    )
+    assert ponte["ajuste_similaridade_operador"] == "-"
+    assert ponte["ajuste_similaridade_abs_fmt"] == "R$ 1,00"
+    assert ponte["valor_calculado_fmt"] == "R$ 147,55"
+
+    ponte_ajuste_positivo = calcular_ponte(
+        saldo_extrato=0.0, saldo_contabil=1.0,
+        liquido_extrato_aberto=0.0, liquido_contabil_aberto=0.0,
+        soma_diferencas_similaridade=1.00,
+    )
+    assert ponte_ajuste_positivo["ajuste_similaridade_operador"] == "+"
+    assert ponte_ajuste_positivo["ajuste_similaridade_abs_fmt"] == "R$ 1,00"
+
+
+def test_pdf_explicita_a_passagem_da_ponte_detalhada_para_a_compacta(pdf_executivo_b_x_c):
+    """A seção 5 deve deixar explícita, no texto e na tabela, a
+    passagem entre a ponte detalhada (R$ 148,55) e a ponte compacta
+    (R$ 147,55): R$ 148,55 - R$ 1,00 = R$ 147,55, com o contexto de que
+    R$ 1,00 é o ajuste das diferenças aceitas por similaridade — sem
+    alterar nenhum dos números do baseline B×C."""
+    texto = _extrair_texto(pdf_executivo_b_x_c)
+    # Normaliza espaços/quebras de linha do PDF (ex.: "R$ 148,55 - R$\n1,00")
+    # antes de checar a substring exata da fórmula.
+    texto_normalizado = re.sub(r"\s+", " ", texto)
+    assert "R$ 148,55 - R$ 1,00 = R$ 147,55" in texto_normalizado
+    assert "ajuste das diferenças" in texto
+    assert "aceitou por" in texto
+    # Baseline B×C intacto.
+    assert "77,8" in texto and "61,1" in texto
+    assert "147,55" in texto
+
+
+# --- XCRE-48 item 2: legenda "par provável apontado pelo sistema" vs "hipótese do analista" ---
+
+def test_pdf_contem_legenda_dos_rotulos_par_provavel_e_hipotese(pdf_executivo_b_x_c):
+    """A seção 5 deve trazer uma legenda curta (1-2 linhas) explicando os
+    dois rótulos usados nas tabelas de pares: "par provável apontado
+    pelo sistema" (calculado por similaridade) e "hipótese do analista"
+    (regra objetiva de descrição + data, ainda sem confirmação) — sem
+    quebrar o limite de 10 páginas nem alterar o baseline B×C."""
+    texto = _extrair_texto(pdf_executivo_b_x_c)
+    texto_normalizado = re.sub(r"\s+", " ", texto)
+    assert "Como ler os rótulos desta seção" in texto_normalizado
+    assert "par provável apontado pelo sistema" in texto_normalizado
+    assert "calculada automaticamente por similaridade" in texto_normalizado
+    assert "hipótese do analista" in texto_normalizado
+    assert "regra objetiva de mesma descrição e mesma data" in texto_normalizado
+    # A legenda deve aparecer uma única vez na seção 5, não repetida a
+    # cada linha/tabela.
+    assert texto_normalizado.count("Como ler os rótulos desta seção") == 1
+    # Baseline B×C intacto.
+    assert "77,8" in texto and "61,1" in texto and "147,55" in texto
+
+
+def test_pdf_continua_com_no_maximo_10_paginas_apos_a_legenda(pdf_executivo_b_x_c):
+    reader = PdfReader(pdf_executivo_b_x_c)
+    assert len(reader.pages) <= 10
+
+
+# --- XCRE-48 item 3: resumo dos 8 itens em aberto (pares prováveis / hipótese / sem par) ---
+
+def test_pdf_resumo_itens_abertos_soma_8_extraida_do_relatorio(pdf_executivo_b_x_c):
+    """A seção 5 deve abrir com uma linha de resumo das contagens dos 8
+    itens em aberto — pares prováveis apontados pelo sistema, pares por
+    hipótese do analista e itens sem par nenhum — usando os mesmos
+    significados da legenda da Rodada 2. As três contagens são
+    extraídas do próprio texto renderizado do PDF (não hard-codadas no
+    teste) e a soma deve bater com o total real de itens em aberto."""
+    texto = _extrair_texto(pdf_executivo_b_x_c)
+    texto_normalizado = re.sub(r"\s+", " ", texto)
+    match = re.search(
+        r"Desses? (\d+) itens? em aberto: (\d+) est\w+ em par provável apontado pelo sistema, "
+        r"(\d+) em par por hipótese do analista e (\d+) segu\w+ sem par nenhum",
+        texto_normalizado,
+    )
+    assert match, "linha de resumo dos itens em aberto não encontrada no PDF"
+    total_aberto, pares_provaveis, pares_hipotese, sem_par = (int(g) for g in match.groups())
+    assert pares_provaveis + pares_hipotese + sem_par == total_aberto
+    assert total_aberto == 8
+    # Baseline B×C intacto.
+    assert "77,8" in texto and "61,1" in texto and "147,55" in texto
+
+
+def test_resumo_itens_abertos_soma_bate_com_total_sem_par_sintetico():
+    """Complementa o teste acima com um cenário sintético (2 pares do
+    sistema + 1 por hipótese + 3 sem par) para garantir que a soma bate
+    mesmo fora do caso B×C — cada par conta os dois lados (extrato +
+    contábil) como itens individuais em aberto."""
+    from modules.report_executivo import _resumo_itens_abertos
+
+    linhas_pares = [
+        {"origem": "sistema"}, {"origem": "sistema"}, {"origem": "hipotese"},
+    ]
+    resumo = _resumo_itens_abertos(linhas_pares, total_sem_par=3)
+    assert resumo["pares_provaveis"] == 4
+    assert resumo["pares_hipotese"] == 2
+    assert resumo["sem_par"] == 3
+    assert resumo["total"] == 9
+    assert resumo["pares_provaveis"] + resumo["pares_hipotese"] + resumo["sem_par"] == resumo["total"]
 
 
 # --- CT-F3-10 / CT-F3-11: layout, sumário clicável, páginas, fontes ---

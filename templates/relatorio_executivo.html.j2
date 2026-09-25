@@ -224,6 +224,18 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
   <div class="keep">
     <h2>5. Divergências e ponte de reconciliação</h2>
     <p class="lede">{{ total_aberto }} {{ pluralizar(total_aberto, 'item ficou', 'itens ficaram') }} sem correspondência: {{ total_extrato_aberto }} no extrato e {{ total_contabil_aberto }} no contábil.</p>
+    <p class="muted" style="margin-top:2px">
+      Desse{{ 's' if total_aberto != 1 else '' }} {{ total_aberto }} {{ pluralizar(total_aberto, 'item', 'itens') }} em aberto:
+      {{ resumo_itens_abertos.pares_provaveis }} {{ pluralizar(resumo_itens_abertos.pares_provaveis, 'está', 'estão') }} em
+      par provável apontado pelo sistema, {{ resumo_itens_abertos.pares_hipotese }} em par por hipótese do analista e
+      {{ resumo_itens_abertos.sem_par }} {{ pluralizar(resumo_itens_abertos.sem_par, 'segue', 'seguem') }} sem par nenhum.
+    </p>
+    <p class="muted" style="margin-top:2px">
+      <strong>Como ler os rótulos desta seção:</strong> "par provável apontado pelo sistema" é uma correspondência
+      calculada automaticamente por similaridade (valor, data e texto parecidos); "hipótese do analista" é um par
+      encontrado só por uma regra objetiva de mesma descrição e mesma data, sem respaldo do sistema. Os dois ainda
+      precisam de confirmação manual antes de virar ajuste.
+    </p>
     <div class="split" style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
       <div>
         <h3 style="margin-top:6px">Extrato sem lançamento ({{ total_extrato_aberto }})</h3>
@@ -330,9 +342,20 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
     <div class="bridge" style="margin-top:12px">
       <div class="brow"><div>Soma das diferenças dos pares identificados</div><div class="num">{{ ponte_detalhada.soma_pares_fmt }}</div></div>
       <div class="brow total"><div>Diferença líquida calculada pela ponte detalhada</div><div class="num">{{ ponte_detalhada.total_detalhado_fmt }}</div></div>
+      <div class="brow"><div>Ajuste das diferenças aceitas por similaridade<small>o mesmo ajuste já somado na ponte compacta acima — não é um valor novo.</small></div><div class="num">{{ ponte.soma_diferencas_similaridade_fmt }}</div></div>
+      <div class="brow total"><div>Diferença líquida da ponte compacta, após o ajuste<small>mesmo valor da linha "Diferença líquida calculada pela ponte" na ponte compacta acima.</small></div><div class="num">{{ ponte.valor_calculado_fmt }}</div></div>
       <div class="brow"><div>Diferença líquida real dos itens em aberto (líquido contábil − líquido extrato)</div><div class="num">{{ ponte_detalhada.alvo_aberto_fmt }}</div></div>
       <div class="brow {{ 'residuo' if not ponte_detalhada.fecha else '' }}"><div>Resíduo (diferença real − ponte detalhada)<small>{{ "Ponte detalhada fecha sem resíduo." if ponte_detalhada.fecha else "A ponte detalhada NÃO fechou — investigar antes de arquivar." }}</small></div><div class="num">{{ ponte_detalhada.residuo_fmt }}</div></div>
     </div>
+    <p class="muted" style="margin-top:8px">
+      Em resumo: a ponte detalhada (linha a linha) fecha em {{ ponte_detalhada.total_detalhado_fmt }}.
+      {{ ponte.ajuste_similaridade_abs_fmt }}
+      {{ "são descontados" if ponte.ajuste_similaridade_operador == "-" else "são somados" }}
+      desse total porque correspondem ao ajuste das diferenças de valor que o sistema já aceitou por
+      similaridade (o mesmo ajuste da ponte compacta, acima). O resultado é a mesma diferença líquida de
+      {{ ponte.valor_calculado_fmt }} mostrada na ponte compacta:
+      <strong>{{ ponte_detalhada.total_detalhado_fmt }} {{ ponte.ajuste_similaridade_operador }} {{ ponte.ajuste_similaridade_abs_fmt }} = {{ ponte.valor_calculado_fmt }}</strong>.
+    </p>
   </div>
   <div class="keep">
     <h3>Exposição agrupada por natureza <span class="muted" style="font-weight:400">· soma das diferenças dos pares + itens sem par, por recebimento/pagamento</span></h3>
