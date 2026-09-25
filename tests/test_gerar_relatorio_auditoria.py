@@ -79,19 +79,13 @@ def _clicar_gerar_relatorio(label, *args, **kwargs):
     return kwargs.get("key") == "btn_gerar_relatorio_analise"
 
 
-# A partir da fase 3 (XCRE-43), "Executivo" é o formato padrão do
-# seletor — estes dois testes continuam cobrindo especificamente o
-# caminho LEGADO ("Completo", modules/report_generator.py), então fixam
-# o valor do seletor em vez de depender do default.
-def _selecionar_completo(label, options, *args, **kwargs):
-    return "Completo"
+# O relatório Executivo é o único formato (o seletor "Completo" foi removido).
 
 
 def test_geracao_com_sucesso_registra_evento_de_auditoria(sessao_autenticada):
     audit_path = sessao_autenticada
 
-    with mock.patch.object(st, "button", side_effect=_clicar_gerar_relatorio), \
-         mock.patch.object(st, "selectbox", side_effect=_selecionar_completo):
+    with mock.patch.object(st, "button", side_effect=_clicar_gerar_relatorio):
         import pages.gerar_relatorio as pagina
         pagina.main()
 
@@ -108,7 +102,7 @@ def test_geracao_com_sucesso_registra_evento_de_auditoria(sessao_autenticada):
     import json
     details = json.loads(details_json)
     assert details["success"] is True
-    assert details["formato"] == "completo"
+    assert details["formato"] == "executivo"
     # "lote" combina conta + período; o período vem de calcular_periodo_real
     # (item 1 desta issue) a partir das datas reais do extrato/contábil
     # fixados no fixture (15/06/2025 a 20/06/2025), não da data de geração.
@@ -120,11 +114,10 @@ def test_geracao_com_falha_registra_evento_de_auditoria_com_erro(sessao_autentic
     audit_path = sessao_autenticada
 
     with mock.patch.object(st, "button", side_effect=_clicar_gerar_relatorio), \
-         mock.patch.object(st, "selectbox", side_effect=_selecionar_completo), \
-         mock.patch("modules.report_generator.gerar_relatorio_analise", side_effect=RuntimeError("falha sintética de geração")):
+         mock.patch("modules.report_executivo.gerar_relatorio_executivo", side_effect=RuntimeError("falha sintética de geração")):
         import pages.gerar_relatorio as pagina
         import importlib
-        importlib.reload(pagina)  # garante que pagina.report_gen aponte para o módulo já mockado
+        importlib.reload(pagina)  # garante que a página use o gerador já mockado
         pagina.main()
 
     conn = sqlite3.connect(audit_path)
