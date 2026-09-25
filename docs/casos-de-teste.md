@@ -13,6 +13,7 @@
 | 3 | 15 | 14 | 0 | 1 | Relatório executivo em PDF; status conforme revisão do squad |
 | 3b | 8 | 8 | 0 | 0 | Correções do relatório executivo; executado na Parte C (2 casos parciais: CT-F3B-03 e CT-F3B-04) |
 | 4 | 7 | 7 | 0 | 0 | Clareza do relatório executivo (pontes, legenda, resumo); executado na revisão por execução (pytest 191, E2E 5/5, PDF 9 páginas) |
+| 5 | 13 | 11 | 1 | 1 | 5 itens de robustez; verificação integrada (pytest 271, E2E 13/13, PDF 9 páginas idêntico ao baseline); o FAIL é o decimal `,` do CSV nos dados reais (CT-F5-05) |
 
 *Contagens feitas automaticamente sobre as linhas “Status de execução” de cada caso.*
 
@@ -1960,3 +1961,456 @@ de documentação, somente `docs/casos-de-teste.md` e o PDF gerado dele mudaram;
 `docs/documentacao-final-fase-4.md` não existe no checkout e não foi tocado
 (`git status --short` lista apenas os dois arquivos do catálogo). Não houve
 push nem PR (o squad não tem credencial Git).
+
+---
+
+## Fase 5 — 5 melhorias de robustez (verificação integrada)
+
+### Escopo, evidência e dependências
+
+Esta seção registra a **verificação por execução** da Fase 5 da issue XCRE-49
+(5 itens independentes implementados em 5 commits separados no worktree:
+`4fbad6d` item 1, `13a3ca3` item 2, `65ddf04` item 3, `265ad97` item 4 e
+`6e78c14` item 5, todos a partir de `main` @ `7bf1e2b`, fase 4). Nada foi
+corrigido durante a verificação: toda divergência foi isolada e está
+relatada em “Achados e divergências isolados” abaixo.
+
+**Ambiente desta execução (real, local):**
+
+- Checkout do revisor em fast-forward até `6e78c14`; `git status` limpo antes
+  de editar apenas `docs/casos-de-teste.md` e o PDF gerado dele.
+- `python3 -m pytest tests/` (pytest 9.1.1, Python 3.10.12).
+- E2E: `streamlit run app.py` local (porta 8591), Chromium headless via
+  Playwright 1.62, banco de usuários novo em diretório temporário
+  (`CONCILIACAO_DB_PATH`/`CONCILIACAO_AUDIT_DB_PATH` apontando para fora do
+  repositório), log estruturado em arquivo próprio
+  (`CONCILIACAO_STRUCTURED_LOG_PATH`), capturas de tela e downloads salvos
+  como evidência.
+- Somente dados sintéticos de `Exemplos/` (`B_1234490.ofx`,
+  `C_1234490.ofx`) e arquivos sintéticos criados para o teste de validação.
+  **Nenhum dado real foi usado.**
+- Baseline de comparação: worktree separado em `7bf1e2b` (fase 4, antes da
+  Fase 5), mesma fixture e mesmo fluxo de interface, porta 8592.
+
+**Evidência desta rodada:**
+
+| Verificação | Resultado |
+|---|---|
+| Suíte completa | `pytest tests/ -q` → **271 passed, 1 skipped, 40 warnings em 25,43 s** (baseline fase 4: 191 passed, 1 skipped; +80 testes novos = 17 + 14 + 17 + 9 + 23) |
+| Testes novos da Fase 5 | validação 17, export CSV 14, propriedades do matching 17, cache 9, log estruturado 23 — todos verdes isoladamente |
+| E2E real (Streamlit + navegador) | **13 de 13 verificações `PASS`** (validação, fluxo B × C, invariantes na tela, CSV, PDF) |
+| Invariantes B × C (fora da UI) | 18 × 18, 11 + 3 = **14**, **77,8%**, efetiva **61,1%**, **4 + 4** divergências, somas 1.386,22 / 1.538,93, diferença líquida **147,55**, resíduo **0,00** |
+| PDF Executivo | 60.468 bytes, WeasyPrint 70.0, A4, **9 páginas**, 4 faces Inter embutidas (`pdffonts`: emb/sub/uni = yes), sem `admin123`, `Bearer`, JWT ou `Traceback` |
+| PDF × baseline (`7bf1e2b`) | texto extraído idêntico nas 20.200 bytes, **exceto 3 linhas de carimbo de hora**; raster: 6 de 9 páginas byte a byte iguais, páginas 1/8/9 com 34/31/40 pixels alterados (0,006–0,008%), todos dentro do retângulo da data de geração |
+| Log estruturado de uma execução real | 8 linhas JSONL válidas: `login` ×2, `carga_arquivo` ×4, `analise` ×1, `geracao_relatorio` ×1; varredura contra senha/hash/conteúdo/descrição/valor/caminho: **0 ocorrências** |
+
+**Limitações declaradas desta rodada:** (a) o squad não tem credencial Git —
+não há push nem PR, os commits ficam só nos worktrees locais; (b) os casos de
+tempo real (`CT-AUTH-03` bloqueio de 15 min e `CT-AUTH-05` expiração de
+sessão) seguem **não executados**, por exigirem confirmação explícita do
+usuário; (c) o cache do parsing não é observável pela interface, portanto foi
+verificado só no nível dos testes instrumentados; (d) a injeção de fórmula
+foi verificada com payloads sintéticos — os dados reais de B × C não contêm
+célula iniciada por `=`, `+`, `-` ou `@`; (e) esta revisão se limita a rodar
+e conferir; arquitetura, design e segurança mais profunda ficam com o
+arquiteto/revisor de segurança.
+
+#### CT-F5-01 — Validação de entrada: arquivo vazio rejeitado pela interface
+
+**Objetivo:** Confirmar que um CSV vazio enviado pelo fluxo real de upload é
+rejeitado com mensagem clara em português, sem stack trace e sem caminho de
+arquivo.
+
+**Pré-condição:** App local logado como `admin`/`admin123`; sistema de
+validação por nome de arquivo ativado; arquivos sintéticos `B_9999999.csv`
+(0 bytes) e `C_9999999.csv` prontos.
+
+**Passos:**
+
+1. Abrir `Importação de Dados` e ativar “Usar sistema de validação por nome
+   de arquivo”.
+2. Enviar `B_9999999.csv` vazio e `C_9999999.csv`.
+3. Clicar em `🔄 Processar Conciliação`.
+4. Ler todos os alertas exibidos e conferir idioma, ausência de `Traceback`
+   e ausência de caminho local (`/home/`, `/tmp/`, `*.py`).
+
+**Resultado esperado:** Rejeição imediata com mensagem em português citando
+o arquivo vazio, sem rastro técnico.
+
+**Status de execução:** `PASS` — E2E real (Chromium headless, porta 8591):
+“Arquivo 'B_9999999.csv' está vazio.” Nenhum alerta contém `Traceback` nem
+caminho de arquivo. Correspondência no log estruturado da mesma execução:
+evento `carga_arquivo` com `motivo="arquivo_vazio"`, `registros=0`.
+
+#### CT-F5-02 — Validação de entrada: arquivo binário rejeitado pela interface
+
+**Objetivo:** Confirmar que conteúdo binário enviado como CSV é rejeitado
+com mensagem em português, sem expor exceção de parsing.
+
+**Pré-condição:** Mesmo cenário do CT-F5-01, com `C_9999999.csv` contendo
+bytes não textuais (NUL/0xFF).
+
+**Passos:**
+
+1. Enviar o par de arquivos sintéticos com o CSV binário no lado contábil.
+2. Clicar em `🔄 Processar Conciliação`.
+3. Ler os alertas e conferir idioma, ausência de `Traceback` e de caminho.
+
+**Resultado esperado:** Rejeição com mensagem clara em português
+identificando dados binários.
+
+**Status de execução:** `PASS` — E2E real: “Arquivo 'C_9999999.csv' parece
+conter dados binários, não um CSV de texto válido.” Sem `Traceback` e sem
+caminho. No log estruturado da mesma execução: `carga_arquivo` com
+`motivo="arquivo_binario"`.
+
+#### CT-F5-03 — Validação de entrada: extensão, colunas obrigatórias, encoding e limite de 10 MiB
+
+**Objetivo:** Cobrir por teste automatizado os demais critérios do item 1 —
+extensão errada, colunas obrigatórias ausentes, encoding (UTF-8 e Latin-1),
+cabeçalho OFX ausente e limite de tamanho — e conferir que as mensagens não
+vazam caminho nem stack trace.
+
+**Pré-condição:** `tests/test_validacao_entrada_ofx_csv.py` presente e
+executável; funções `validar_entrada_csv`/`validar_entrada_ofx` em
+`pages/importacao_dados.py`.
+
+**Passos:**
+
+1. Executar `pytest tests/test_validacao_entrada_ofx_csv.py -q`.
+2. Conferir a lista de casos coletados e a contagem real.
+3. Verificar que os casos cobrem extensão, vazio, binário, colunas faltando
+   (data, valor e ambas), encoding, cabeçalho OFX, mensagens sem caminho e o
+   limite de 10 MiB.
+
+**Resultado esperado:** Todos os casos do arquivo passam e o limite está
+fixado em 10 MiB (10.485.760 bytes).
+
+**Status de execução:** `PASS` — **17 passed** (`pytest tests/
+test_validacao_entrada_ofx_csv.py -q`), incluindo
+`test_tamanho_maximo_e_dez_mebibytes_em_bytes` e
+`test_csv_grande_e_rejeitado_por_tamanho_antes_de_validar_conteudo`.
+**Divergência de relato, sem correção:** a rodada do item 1 declarou “22
+casos novos”; a coleta real do arquivo é de **17 testes** (a contagem de 22
+não se confirma no código entregue). Os 17 passam — a falha é de contagem no
+relato, não de comportamento.
+
+#### CT-F5-04 — Exportação CSV das divergências: BOM, separador `;`, datas e conteúdo B × C
+
+**Objetivo:** Confirmar que o download pela interface entrega UTF-8 com BOM,
+separador `;`, datas `dd/mm/aaaa` e exatamente as 4 divergências bancárias do
+cenário de referência.
+
+**Pré-condição:** Análise B × C executada na interface; aba `⚠️ Divergências`
+→ `🏦 Bancário sem Contábil` com o botão `📥 Exportar Divergências Bancárias`.
+
+**Passos:**
+
+1. Baixar o CSV pelo botão da tela de resultados.
+2. Conferir os 3 primeiros bytes (`EF BB BF`), o cabeçalho separado por `;`.
+3. Contar as linhas de dados e conferir o padrão de data.
+4. Conferir se o conteúdo corresponde às 4 divergências bancárias conhecidas.
+
+**Resultado esperado:** 4 linhas, datas no formato brasileiro, BOM e `;`.
+
+**Status de execução:** `PASS` — E2E real: 1.264 bytes com
+`ef bb bf` no início; cabeçalho
+`Tipo_Divergência;Data;Valor_Bancário;Descrição_Bancário;Origem;Status;Recomendação;Ação_Sugerida`;
+4 linhas de dados (`15/06/2025`, `29/06/2025`, `30/06/2025`, `11/07/2025`)
+correspondendo a Mercadolivre, Uber, Pagamento recebido e Uber* Trip. O
+conteúdo é idêntico ao das tabelas exibidas na tela.
+
+#### CT-F5-05 — Exportação CSV: separador decimal `,` nos dados reais
+
+**Objetivo:** Confirmar que os valores numéricos do CSV saem com vírgula
+decimal, conforme o formato exigido pelo item 2 (separador `;`, **decimal
+`,`**, BOM, datas `dd/mm/aaaa`).
+
+**Pré-condição:** Mesmo CSV baixado no CT-F5-04; teste unitário
+`test_csv_usa_virgula_como_decimal_em_coluna_numerica` presente.
+
+**Passos:**
+
+1. Abrir o CSV baixado pela interface no cenário B × C real.
+2. Inspecionar a coluna `Valor_Bancário` linha a linha.
+3. Procurar qualquer valor com vírgula decimal.
+4. Comparar com o teste unitário, que cobre apenas uma coluna numérica
+   sintética.
+
+**Resultado esperado:** Todos os valores monetários com vírgula decimal.
+
+**Status de execução:** `FAIL` — no CSV **real** os valores saem com ponto
+decimal: `R$ -60.50`, `R$ -4.92`, `R$ 1,300.00`, `R$ -20.80`. A função
+aplica `decimal=','` apenas em colunas numéricas, mas as tabelas de
+divergência entregues pelo fluxo real já contêm valores formatados como
+texto no padrão en-US da interface, e o export os preserva. O teste unitário
+do item 2 passa porque usa uma coluna numérica sintética — o requisito “decimal
+`,`” **não é atendido nos dados reais**. Divergência **isolada e não
+corrigida** (a issue proíbe correção silenciosa na revisão); não altera
+números da conciliação, layout nem o PDF.
+
+#### CT-F5-06 — Proteção contra injeção de fórmula no CSV
+
+**Objetivo:** Confirmar que células iniciadas por `=`, `+`, `-` ou `@`
+recebem apóstrofo na exportação e que células normais não são alteradas.
+
+**Pré-condição:** `tests/test_export_divergencias.py` com caso
+parametrizado para os quatro prefixos; CSV real do CT-F5-04 disponível.
+
+**Passos:**
+
+1. Executar `pytest tests/test_export_divergencias.py -q`.
+2. Conferir os quatro payloads parametrizados (`=`, `+`, `-`, `@`).
+3. Conferir que célula normal e valor monetário não recebem apóstrofo
+   indevido.
+4. Varredura complementar no CSV real: nenhuma linha deve começar por um
+   desses caracteres.
+
+**Resultado esperado:** 14 testes passando e nenhuma célula de fórmula no
+arquivo real.
+
+**Status de execução:** `PASS` — **14 passed**; nos 4 payloads sintéticos a
+célula sai como `'=...`; células normais ficam intactas. Varredura do CSV
+real: **0** linhas iniciadas por `=`, `+`, `-` ou `@` (os dados B × C não
+contêm célula maliciosa, então a proteção foi comprovada pelos payloads
+sintéticos).
+
+#### CT-F5-07 — Testes de propriedade do matching e achado de ambiguidade
+
+**Objetivo:** Confirmar que existem testes de propriedade do matching com
+seed fixa (invariância à ordem, unicidade dos pares, recomposição de totais,
+idempotência), que o matching não foi alterado e que um defeito real, se
+encontrado, está registrado sem correção.
+
+**Pré-condição:** `tests/test_matching_propriedades.py` presente;
+`modules/data_analyzer.py` intocado na Fase 5 (`git diff 7bf1e2b..6e78c14 --
+modules/data_analyzer.py` vazio).
+
+**Passos:**
+
+1. Executar `pytest tests/test_matching_propriedades.py -q`.
+2. Identificar o caso que documenta o achado de ambiguidade.
+3. Reproduzir o caso mínimo: duas linhas de extrato com mesmo valor e data e
+   uma linha contábil correspondente, nas duas ordens.
+4. Confirmar que nenhuma asserção foi enfraquecida (`skip`/`xfail`) e que o
+   algoritmo não mudou.
+
+**Resultado esperado:** 17 testes passando, achado documentado como
+comportamento atual e matching sem alteração.
+
+**Status de execução:** `PASS` — **17 passed**. Achado **registrado e não
+corrigido**: `_match_valor_data_exata` consome o candidato contábil na ordem
+de iteração do extrato, então, havendo ambiguidade de (valor, data), o id
+específico que casa depende da ordem das linhas — reprodução determinística
+em
+`test_matching_ambiguidade_mesma_data_e_valor_depende_da_ordem_das_linhas`
+(ordem `[1, 2]` → par `(1, 10)`; ordem `[2, 1]` → par `(2, 10)`). O teste
+está verde porque descreve o comportamento real, sem `skip` nem asserção
+enfraquecida. **Impacto no cenário B × C: nenhum** (14 correspondências,
+77,8% e as somas seguem intactos — ver CT-F5-11); o efeito é apenas na
+identidade do par quando há duplicata de valor+data. O módulo de matching não
+foi tocado em nenhum dos 5 commits.
+
+#### CT-F5-08 — Cache do parsing por hash de conteúdo
+
+**Objetivo:** Confirmar que o mesmo conteúdo não é reparseado, que conteúdo
+diferente invalida o cache e que o cache não guarda estado dependente de
+sessão.
+
+**Pré-condição:** `tests/test_cache_parsing.py` com instrumentação de
+`pd.read_csv`/`OfxParser.parse`; funções cacheadas
+`_parsear_csv_cacheado`/`_parsear_ofx_cacheado`.
+
+**Passos:**
+
+1. Executar `pytest tests/test_cache_parsing.py -q`.
+2. Conferir os casos: bytes idênticos não reprocessam; conteúdo diferente
+   reprocessa; encoding diferente não reaproveita; mutação do DataFrame
+   retornado não contamina o cache; assinatura restrita a bytes/parâmetros.
+3. Executar também os testes do item 1 no mesmo arquivo para confirmar que a
+   integração não os quebrou.
+
+**Resultado esperado:** 9 testes de cache passando e os testes do item 1
+íntegros.
+
+**Status de execução:** `PASS` — **9 passed** e **17 passed** do item 1 na
+mesma suíte. **Não verificável pela interface:** nenhum teste E2E consegue
+observar “não reparseou” sem instrumentação no navegador; o comportamento em
+reruns do Streamlit fica declarado como coberto apenas pelos testes
+unitários instrumentados (limitação registrada no CT-F5-13).
+
+#### CT-F5-09 — Log estruturado JSONL sem dado sensível em execução real
+
+**Objetivo:** Confirmar que uma execução real (login, cargas, análise e
+geração de relatório) grava eventos JSON linha a linha, parseáveis e sem
+senha, hash, conteúdo, descrição de transação, valor identificável, caminho
+ou stack trace.
+
+**Pré-condição:** `CONCILIACAO_STRUCTURED_LOG_PATH` apontando para arquivo
+próprio antes do E2E; varredura automática contra as descrições reais dos
+dois OFX de exemplo.
+
+**Passos:**
+
+1. Zerar o arquivo de log e executar o E2E completo (login, validação com
+   arquivo vazio/binário, B × C, análise, CSV e PDF).
+2. Parsear cada linha como JSON.
+3. Conferir a presença dos quatro tipos de evento.
+4. Varrer o arquivo contra `admin123`, `password`, `senha`, `Bearer`,
+   prefixo JWT (`eyJ`), `Traceback`, caminhos, nomes de arquivo
+   (`B_1234490`, `.ofx`, `.csv`), valores do cenário (1.386,22 / 1.538,93 /
+   147,55 / 77,8) e **cada descrição de transação extraída dos OFX**.
+
+**Resultado esperado:** Todos os JSONs válidos, os quatro eventos presentes
+e zero ocorrências na varredura.
+
+**Status de execução:** `PASS` — **8 linhas, 8 JSONs válidos**:
+`login` ×2, `carga_arquivo` ×4 (incluindo `arquivo_vazio` e `sucesso` com
+`registros=18`), `analise` ×1 (`total_extrato=18`, `total_contabil=18`,
+`total_matches=14`, `total_divergencias=8`) e `geracao_relatorio` ×1
+(`formato=executivo`, `matches_incluidos=14`, `divergencias_incluidas=8`).
+Varredura: **0 ocorrências** de todos os termos proibidos e **0** das
+descrições reais dos OFX. Observação (para o revisor de segurança): o evento
+de login de sucesso inclui `"usuario": "admin"` — é identificador, não
+segredo, mas foge da redação estrita “só contagens, formato e duração” do
+pedido do item 5.
+
+#### CT-F5-10 — Suíte completa de regressão
+
+**Objetivo:** Rodar a suíte inteira depois dos 5 itens e comparar com o
+baseline da Fase 4.
+
+**Pré-condição:** Checkout em `6e78c14`; dependências instaladas.
+
+**Passos:**
+
+1. Executar `python3 -m pytest tests/ -q`.
+2. Conferir total, ignorados e tempo.
+3. Confirmar que a variação em relação ao baseline se explica pelos testes
+   novos da Fase 5.
+
+**Resultado esperado:** Todos os testes passando, com o único ignorado já
+presente no baseline.
+
+**Status de execução:** `PASS` — **271 passed, 1 skipped, 40 warnings in
+25,43 s** (executado duas vezes, mesmo resultado). Baseline da Fase 4: 191
+passed, 1 skipped. Diferença: +80 testes, exatamente 17 + 14 + 17 + 9 + 23
+dos cinco arquivos novos. O ignorado continua sendo
+`tests/test_pluralizacao.py:94` (“gerar_relatorio_executivo exige
+DataFrames não vazios”), já existente antes da Fase 5.
+
+#### CT-F5-11 — Invariantes B × C preservados
+
+**Objetivo:** Confirmar que os números de referência continuam idênticos ao
+baseline: 14 correspondências, 77,8%, efetiva 61,1%, 4 + 4 divergências,
+diferença líquida 147,55 e resíduo 0,00.
+
+**Pré-condição:** `Exemplos/B_1234490.ofx` e `Exemplos/C_1234490.ofx`;
+script independente que roda o matching e a ponte fora da interface.
+
+**Passos:**
+
+1. Carregar os dois OFX e rodar o matching com a configuração padrão.
+2. Conferir contagens, cobertura, cobertura efetiva e somas por lado.
+3. Montar o contexto do relatório executivo e ler a ponte
+   (`valor_calculado`, `resíduo`, `fecha`).
+4. Repetir a conferência na interface (métricas exibidas) e no PDF baixado.
+
+**Resultado esperado:** Todos os valores iguais aos da issue e ao baseline.
+
+**Status de execução:** `PASS` — fora da UI: 18 × 18, 11 exatos + 3
+heurísticos = 14, cobertura 77,8%, efetiva 61,1%, 4 + 4 divergências,
+somas R$ 1.386,22 e R$ 1.538,93, diferença líquida R$ 147,55, resíduo
+R$ 0,00, ponte “fecha”. Na interface E2E: `Transações Analisadas 18` (delta
+“14 com correspondência”), `Lançamentos Analisados 18`, `Cobertura de Análise
+77.8%`, `Itens em Divergência 8`. No PDF: “Cobertura informada de 77,8%”,
+“cobertura efetiva é de 61,1%”, “Diferença líquida de R$ 147,55”, “Resíduo
+… R$ 0,00”, “Ponte fecha sem resíduo” e a fórmula “R$ 148,55 - R$ 1,00 =
+R$ 147,55”.
+
+#### CT-F5-12 — PDF e layout idênticos ao baseline da Fase 4
+
+**Objetivo:** Confirmar que nenhum dos 5 itens alterou o relatório Executivo
+nem seu layout, comparando com a versão anterior à Fase 5.
+
+**Pré-condição:** PDF gerado pela interface em `6e78c14` e PDF gerado pelo
+mesmo fluxo em worktree `7bf1e2b` (fase 4); `pdfinfo`, `pdftotext`,
+`pdffonts` e `pdftoppm` disponíveis.
+
+**Passos:**
+
+1. Gerar o PDF Executivo pela interface nas duas versões (mesma fixture,
+   mesmo fluxo, apenas a versão do código muda).
+2. Conferir `pdfinfo` (páginas, tamanho, produtor) nas duas versões.
+3. Comparar o texto extraído com `pdftotext -layout`, linha a linha.
+4. Normalizar o carimbo de data/hora e comparar de novo.
+5. Rasterizar as 9 páginas a 72 dpi em cada versão e comparar as imagens.
+
+**Resultado esperado:** Mesmo número de páginas, mesmo formato, texto
+idêntico e diferenças gráficas restritas ao carimbo de geração.
+
+**Status de execução:** `PASS` — baseline `7bf1e2b`: 60.467 bytes, 9
+páginas, A4, WeasyPrint 70.0; Fase 5 (`6e78c14`): 60.468 bytes, mesmas 9
+páginas e mesmo formato. Diff do texto: **apenas 3 linhas**, todas o carimbo
+“Data de geração 25/09/2026, 10:55” (baseline) × “10:51” (Fase 5) — as
+20.200 bytes restantes são idênticas. Raster: **6 de 9 páginas byte a byte
+iguais**; páginas 1, 8 e 9 diferem em 34, 31 e 40 pixels (0,007%, 0,006%,
+0,008% do total), todos dentro de uma caixa de ~5 × 8 px correspondente aos
+dígitos da hora. Layout e números, portanto, **inalterados** pela Fase 5.
+
+#### CT-F5-13 — Itens não verificáveis nesta rodada
+
+**Objetivo:** Deixar explícito o que **não** foi verificado, para que nada
+seja presumido como aprovado.
+
+**Pré-condição:** — (é um caso de registro).
+
+**Passos:**
+
+1. Listar tudo que exigiria outro método, outra autorização ou outro papel.
+2. Marcar cada item como `NAO EXECUTADO`, sem tentar simular resultado.
+
+**Resultado esperado:** Lista explícita, sem nenhum `PASS` presumido.
+
+**Status de execução:** `NAO EXECUTADO` — os seguintes pontos **não foram
+verificados** nesta rodada:
+
+- **Cache de parsing em reruns reais do Streamlit (item 4):** não observável
+  pela interface sem instrumentação; coberto apenas por 9 testes
+  unitários instrumentados.
+- **Injeção de fórmula com dado real malicioso:** os dados B × C não contêm
+  células iniciadas por `=`, `+`, `-` ou `@`; a proteção foi comprovada só
+  com payloads sintéticos.
+- **`CT-AUTH-03` (liberação após 15 min de bloqueio) e `CT-AUTH-05`
+  (expiração de sessão):** casos de tempo real, exigem confirmação explícita
+  do usuário antes de executar — seguem como na Fase 4, não executados.
+- **Relatório legado `Completo` (PyFPDF):** fora do escopo desta fase; o
+  caminho foi coberto em fases anteriores.
+- **Arquitetura, design e segurança profunda:** fora do cargo de revisão
+  rápida, que se limita a rodar e conferir — havendo dúvida nesse campo,
+  escalar para o arquiteto/revisor de segurança.
+- **Publicação (push/PR):** o squad não tem credencial Git; os 5 commits da
+  Fase 5 e os documentos desta revisão ficam somente nos worktrees locais.
+- **Execução em ambiente de produção/nuvem** e **compatibilidade com o app
+  publicado**: não testados (apenas ambiente local).
+
+### Achados e divergências isolados (nenhuma correção aplicada)
+
+1. **Achado do matching (item 3), registrado sem correção:** ambiguidade de
+   (valor, data) faz o id casado depender da ordem das linhas — ver
+   CT-F5-07. Sem impacto nos números de B × C.
+2. **`FAIL` do decimal `,` no CSV real (item 2):** o requisito de formato só
+   é atendido em colunas numéricas; nos dados reais o valor sai como
+   `R$ -60.50` — ver CT-F5-05.
+3. **Contagem divergente no relato do item 1:** declarado “22 casos novos”;
+   o arquivo coleta **17** — ver CT-F5-03 (comportamento aprovado, contagem
+   do relato não confere).
+4. **`pages/gerar_relatorio.py` segue com `to_csv()` sem BOM/`;'/proteção**
+   nos 3 botões de export dessa página — fora do escopo do item 2 (a issue
+   pediu a página de resultados), registrado pelo próprio desenvolvedor e
+   mantido aqui como pendência conhecida.
+5. **Log de login de sucesso grava `"usuario": "admin"`** — identificador,
+   não segredo; registrado no CT-F5-09 para análise do revisor de segurança.
+6. **Bug preexistente em `modules/performance_optimizer.py`
+   (`cache_manager` usa `time.time()` sem `import time`)** — fora do escopo
+   da Fase 5, registrado pelo desenvolvedor do item 4 e não corrigido aqui.
