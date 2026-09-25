@@ -272,13 +272,6 @@ def main():
     periodo_relatorio = st.sidebar.text_input("Período da Análise",
                                             calcular_periodo_real(extrato_filtrado, contabil_filtrado))
 
-    # Opções de conteúdo
-    st.sidebar.header("📋 Conteúdo do Relatório")
-    incluir_detalhes_matches = st.sidebar.checkbox("Incluir detalhes das correspondências", True)
-    incluir_divergencias = st.sidebar.checkbox("Incluir análise de divergências", True)
-    incluir_estatisticas = st.sidebar.checkbox("Incluir estatísticas detalhadas", True)
-    incluir_recomendacoes = st.sidebar.checkbox("Incluir recomendações", True)
-
     # Pré-visualização do relatório
     st.header("📋 Resumo da Análise")
 
@@ -622,12 +615,6 @@ def main():
                         success=True,
                         included_matches=len(resultados_analise.get('matches', [])),
                         included_exceptions=len(resultados_analise.get('excecoes', [])),
-                        report_parameters={
-                            'incluir_detalhes_matches': incluir_detalhes_matches,
-                            'incluir_divergencias': incluir_divergencias,
-                            'incluir_estatisticas': incluir_estatisticas,
-                            'incluir_recomendacoes': incluir_recomendacoes,
-                        },
                     )
                     get_structured_logger().log_geracao_relatorio(
                         formato=formato_relatorio.lower(), sucesso=True, motivo='sucesso',
