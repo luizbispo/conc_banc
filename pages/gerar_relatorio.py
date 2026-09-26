@@ -605,11 +605,8 @@ def main():
                     st.success(f"✅ Relatório {formato_relatorio} gerado com sucesso!")
                     st.info(f"📋 Conta incluída no relatório: **{conta_analisada}**")
                     
-                    # Pré-visualização embutida
-                    st.subheader("👁️ Pré-visualização do PDF")
-                    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
-                    st.markdown(pdf_display, unsafe_allow_html=True)
+                    # Sem pré-visualização embutida: o Chrome bloqueia PDF em iframe com data: URL
+                    # ("conteúdo bloqueado pelo Chrome"); o PDF é entregue pelo botão de download acima.
                     
                 except Exception as e:
                     audit.log_report_generation(
