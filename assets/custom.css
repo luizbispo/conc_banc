@@ -1,0 +1,98 @@
+/* Tema v3 - Sistema de Conciliação Bancária (fase 6, XCRE-54 item 3).
+   Revisado a partir da proposta do Gemini (anexo da issue):
+   - Não carrega fonte externa (ex.: Google Fonts): usa 'Inter' com
+     fallback system-ui/sans-serif, sem nenhuma referência a recurso
+     remoto neste arquivo — cai no fallback se a fonte não estiver
+     instalada no dispositivo.
+   - Removida a classe auto-gerada da proposta original (o hash de cache
+     interno do Streamlit muda entre versões/telas e não é uma API
+     estável). Daqui para frente, só data-testid documentados do
+     Streamlit (sidebar, metric, dataframe, button) e classes próprias
+     deste projeto (.step-*, usadas quando a Home v3 for implementada num
+     sub-item futuro).
+   - Não esconde nenhuma mensagem de erro ou alerta do Streamlit; só o
+     menu hambúrguer padrão (#MainMenu) e o rodapé "Made with Streamlit"
+     (footer) são ocultados. */
+
+html, body, [data-testid="stAppViewContainer"] {
+    font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Sidebar sóbria (Navy) */
+[data-testid="stSidebar"] {
+    background-color: #0B2A5B;
+    border-right: 1px solid #1E293B;
+}
+
+/* Home v3: cartões de etapa (estilo pronto para quando a Home for
+   implementada; nenhum elemento usa estas classes ainda). */
+.step-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 32px;
+    text-align: center;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    height: 100%;
+}
+
+.step-card:hover {
+    border-color: #002D72;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+    transform: translateY(-2px);
+}
+
+.step-number {
+    font-size: 12px;
+    font-weight: 700;
+    color: #64748B;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.step-label {
+    font-size: 18px;
+    font-weight: 600;
+    color: #0B2A5B;
+}
+
+/* KPIs e tabelas */
+[data-testid="stMetric"] {
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    padding: 16px;
+    border-radius: 8px;
+}
+
+[data-testid="stDataFrame"] {
+    border: 1px solid #E2E8F0;
+}
+
+/* Botões */
+div.stButton > button {
+    background-color: #002D72;
+    color: #FFFFFF;
+    border-radius: 6px;
+    padding: 0.5rem 2rem;
+    font-weight: 600;
+    border: none;
+}
+
+/* Esconde só a marca/menu padrão do Streamlit (nunca alertas/erros). */
+#MainMenu {
+    visibility: hidden;
+}
+
+footer {
+    visibility: hidden;
+}
+
+/* Texto claro sobre a sidebar navy (legibilidade: o tema global usa texto escuro) */
+[data-testid="stSidebar"] :is(p, span, label, li, h1, h2, h3, h4, a, small) {
+    color: #E2E8F0;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"],
+[data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][aria-current="page"] {
+    background-color: rgba(255, 255, 255, 0.12);
+}

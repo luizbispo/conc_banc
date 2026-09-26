@@ -9,6 +9,7 @@ integração com a auditoria. Cobre os casos CT-F3-01/02/03/04/06/07/
 Dados 100% sintéticos (Exemplos/B_1234490.ofx e C_1234490.ofx são o
 fixture sintético já usado na fase 2 para o cenário de referência).
 """
+import inspect
 import json
 import os
 import re
@@ -34,6 +35,7 @@ from modules.report_executivo import (
     montar_contexto_executivo,
     _url_fetcher_seguro,
 )
+from pages.gerar_relatorio import calcular_periodo_real
 
 EXEMPLOS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Exemplos")
 
@@ -148,6 +150,17 @@ def test_golden_b_x_c_contexto_bate_com_o_modelo(resultados_b_x_c):
 
     diffs = sorted(round(l["diferenca"], 2) for l in ctx["matches_similaridade_linhas"])
     assert diffs == [-3.00, 0.00, 2.00]
+
+
+# --- XCRE-54 item 2: sem campo/override manual de período, o valor
+# usado na capa/auditoria/lote é sempre o automático de
+# calcular_periodo_real. No caso de referência B×C esse cálculo
+# automático precisa continuar batendo exatamente com o período
+# documentado ("15/06/2025 a 16/07/2025"). ---
+
+def test_periodo_automatico_bate_com_o_caso_referencia_b_x_c(resultados_b_x_c):
+    _resultados, extrato, contabil = resultados_b_x_c
+    assert calcular_periodo_real(extrato, contabil) == "15/06/2025 a 16/07/2025"
 
 
 def test_golden_b_x_c_pdf_contem_os_valores_do_modelo(pdf_executivo_b_x_c):
@@ -529,25 +542,74 @@ def test_pdf_nao_contem_credenciais_ou_segredos(pdf_executivo_b_x_c):
 
 # --- CT-F3-02: campos configuráveis e valores ausentes ---
 
-def test_campos_vazios_aparecem_como_nao_informado_sem_meta_externa(resultados_b_x_c):
+def test_campos_vazios_aparecem_como_nao_informado(resultados_b_x_c):
     resultados, extrato, contabil = resultados_b_x_c
     ctx = montar_contexto_executivo(
         resultados_analise=resultados, extrato_df=extrato, contabil_df=contabil,
         empresa_nome="", analista_nome="", classificacao_documento="",
-        periodo="15/06/2025 a 16/07/2025", conta_analisada=None, meta_cobertura="",
+        periodo="15/06/2025 a 16/07/2025", conta_analisada=None,
     )
     assert ctx["empresa_nome"] == "Não informado"
     assert ctx["analista_nome"] == "Não informado"
     assert ctx["classificacao_documento"] == "Documento interno"
-    assert ctx["meta_cobertura"] is None
     assert ctx["conta_analisada"] == "Não identificada"
 
-    ctx_com_meta = montar_contexto_executivo(
+
+# --- XCRE-54 item 1: "meta de cobertura" removida por decisão do usuário.
+# A cobertura CALCULADA (cobertura_sistema / cobertura_efetiva, ex.:
+# 77,8% e 61,1% no caso B×C) continua existindo e aparecendo no PDF; só a
+# META configurável pelo usuário (um valor de referência digitado à mão,
+# sem relação com o cálculo) deixou de existir. ---
+
+def test_meta_cobertura_nao_existe_mais_como_parametro_ou_chave(resultados_b_x_c):
+    resultados, extrato, contabil = resultados_b_x_c
+
+    assert "meta_cobertura" not in inspect.signature(montar_contexto_executivo).parameters
+    assert "meta_cobertura" not in inspect.signature(gerar_relatorio_executivo).parameters
+
+    with pytest.raises(TypeError):
+        montar_contexto_executivo(
+            resultados_analise=resultados, extrato_df=extrato, contabil_df=contabil,
+            empresa_nome="Empresa QA", analista_nome="Analista QA",
+            classificacao_documento="Documento interno",
+            periodo="15/06/2025 a 16/07/2025", conta_analisada="1234490",
+            meta_cobertura="90%",
+        )
+
+    ctx = montar_contexto_executivo(
         resultados_analise=resultados, extrato_df=extrato, contabil_df=contabil,
-        empresa_nome="Empresa QA", analista_nome="Analista QA", classificacao_documento="Uso restrito",
-        periodo="15/06/2025 a 16/07/2025", conta_analisada="1234490", meta_cobertura="90%",
+        empresa_nome="Empresa QA", analista_nome="Analista QA",
+        classificacao_documento="Documento interno",
+        periodo="15/06/2025 a 16/07/2025", conta_analisada="1234490",
     )
-    assert ctx_com_meta["meta_cobertura"] == "90%"
+    assert "meta_cobertura" not in ctx
+    # A cobertura calculada continua existindo — só a meta configurável some.
+    assert "cobertura_sistema" in ctx
+    assert "cobertura_efetiva" in ctx
+
+
+def test_pdf_executivo_nao_contem_palavra_meta_mesmo_se_solicitada(resultados_b_x_c):
+    """`gerar_relatorio_executivo` mantém **kwargs por compatibilidade, então
+    uma chamada legada que ainda passe `meta_cobertura` não quebra — mas o
+    valor é ignorado silenciosamente: não deve mais existir nenhum jeito de
+    fazer a palavra "meta" aparecer no PDF."""
+    resultados, extrato, contabil = resultados_b_x_c
+    pdf_bytes = gerar_relatorio_executivo(
+        resultados_analise=resultados,
+        extrato_df=extrato,
+        contabil_df=contabil,
+        empresa_nome="Empresa QA",
+        analista_nome="Analista QA",
+        classificacao_documento="Documento interno",
+        periodo="15/06/2025 a 16/07/2025",
+        conta_analisada="1234490",
+        meta_cobertura="90%",
+    )
+    with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
+        tmp.write(pdf_bytes)
+        tmp.flush()
+        texto = _extrair_texto(tmp.name)
+    assert "meta" not in texto.lower()
 
 
 # --- CT-F3-15: pré-condições ausentes não geram PDF de sucesso ---

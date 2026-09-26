@@ -45,12 +45,57 @@ def test_periodo_ignora_datas_invalidas():
     assert calcular_periodo_real(extrato_df, contabil_df) == "05/01/2025 a 05/01/2025"
 
 
-def test_periodo_cai_no_mes_de_geracao_sem_dados_validos():
+# --- XCRE-54 item 2: campo/override manual de período removido; o
+# período do relatório passa a ser SEMPRE o automático de
+# calcular_periodo_real (capa, seção de auditoria e lote da auditoria em
+# pages/gerar_relatorio.py). Casos de borda pedidos na issue: anos
+# diferentes, um lado vazio, datas inválidas. ---
+
+def test_periodo_calcula_corretamente_entre_anos_diferentes():
+    extrato_df = pd.DataFrame({
+        'id': [1, 2],
+        'data': pd.to_datetime(['2024-12-10', '2025-01-02']),
+        'valor': [100.0, -50.0],
+    })
+    contabil_df = pd.DataFrame({
+        'id': [1],
+        'data': pd.to_datetime(['2025-03-20']),
+        'valor': [100.0],
+    })
+    assert calcular_periodo_real(extrato_df, contabil_df) == "10/12/2024 a 20/03/2025"
+
+
+def test_periodo_usa_somente_o_lado_com_dados_quando_outro_lado_esta_vazio():
+    extrato_com_dados = pd.DataFrame({
+        'id': [1, 2],
+        'data': pd.to_datetime(['2025-06-15', '2025-07-16']),
+        'valor': [100.0, -50.0],
+    })
+    contabil_vazio = pd.DataFrame(columns=['id', 'data', 'valor'])
+    # Lado vazio não quebra o cálculo — usa só o lado com dados (valor
+    # claro: o intervalo real, não uma mensagem de erro).
+    assert calcular_periodo_real(extrato_com_dados, contabil_vazio) == "15/06/2025 a 16/07/2025"
+    assert calcular_periodo_real(contabil_vazio, extrato_com_dados) == "15/06/2025 a 16/07/2025"
+    assert calcular_periodo_real(extrato_com_dados, None) == "15/06/2025 a 16/07/2025"
+
+
+def test_periodo_mensagem_clara_em_portugues_quando_nenhum_lado_tem_data_valida():
     from datetime import datetime
-    extrato_df = pd.DataFrame({'id': [], 'data': [], 'valor': []})
-    contabil_df = pd.DataFrame({'id': [], 'data': [], 'valor': []})
-    resultado = calcular_periodo_real(extrato_df, contabil_df)
-    assert resultado == datetime.now().strftime('%B/%Y')
+
+    casos = [
+        (pd.DataFrame({'id': [], 'data': [], 'valor': []}), pd.DataFrame({'id': [], 'data': [], 'valor': []})),
+        (pd.DataFrame({'id': [1], 'data': ['nao-e-uma-data'], 'valor': [1.0]}),
+         pd.DataFrame({'id': [1], 'data': ['tambem-invalida'], 'valor': [1.0]})),
+        (None, None),
+    ]
+    mes_de_geracao = datetime.now().strftime('%B/%Y')
+    for extrato_df, contabil_df in casos:
+        resultado = calcular_periodo_real(extrato_df, contabil_df)
+        # Sem override manual (removido nesta issue), o automático nunca
+        # pode fingir silenciosamente que o mês de geração do PDF é o
+        # período dos dados — precisa de uma mensagem clara em português.
+        assert resultado != mes_de_geracao
+        assert "não determinado" in resultado.lower()
 
 
 # --- formatar_valor_brl / _somar_coluna_valor ---

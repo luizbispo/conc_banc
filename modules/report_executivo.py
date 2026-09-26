@@ -692,7 +692,6 @@ def montar_contexto_executivo(
     periodo: str,
     conta_analisada: Optional[str],
     observacoes: str = "",
-    meta_cobertura: Optional[str] = None,
     data_emissao: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     data_emissao = data_emissao or datetime.now()
@@ -836,7 +835,6 @@ def montar_contexto_executivo(
     empresa_display = (empresa_nome or "").strip() or "Não informado"
     analista_display = (analista_nome or "").strip() or "Não informado"
     classificacao_display = (classificacao_documento or "").strip() or "Documento interno"
-    meta_cobertura_display = (meta_cobertura or "").strip() or None
     conta_display = (conta_analisada or "").strip() or "Não identificada"
     conta_footer = conta_display.replace('"', "'").replace("\\", "/").replace("\n", " ")
 
@@ -848,7 +846,6 @@ def montar_contexto_executivo(
         "empresa_nome": empresa_display,
         "analista_nome": analista_display,
         "classificacao_documento": classificacao_display,
-        "meta_cobertura": meta_cobertura_display,
         "observacoes": (observacoes or "").strip(),
         "total_extrato": total_extrato,
         "total_contabil": total_contabil,
@@ -898,7 +895,6 @@ def gerar_relatorio_executivo(
     periodo: str = "",
     observacoes: str = "",
     conta_analisada: Optional[str] = None,
-    meta_cobertura: Optional[str] = None,
     **kwargs,
 ) -> bytes:
     """Gera o relatório Executivo em PDF e retorna os BYTES do arquivo
@@ -926,7 +922,6 @@ def gerar_relatorio_executivo(
         periodo=periodo,
         conta_analisada=conta_analisada,
         observacoes=observacoes,
-        meta_cobertura=meta_cobertura,
     )
 
     template = _env.get_template("relatorio_executivo.html.j2")

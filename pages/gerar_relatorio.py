@@ -12,6 +12,7 @@ from difflib import SequenceMatcher
 from modules.auth_middleware import require_auth, get_current_user
 from modules.audit_logger import get_audit_logger
 from modules.structured_logger import get_structured_logger
+from modules.tema import aplicar_tema
 
 
 # parse_valor_moeda mudou de casa para modules/report_generator.py (é
@@ -24,14 +25,23 @@ from modules.report_generator import parse_valor_moeda
 def calcular_periodo_real(extrato_df: pd.DataFrame, contabil_df: pd.DataFrame) -> str:
     """Calcula o período real coberto pelos dados analisados (menor e maior
     data entre extrato e contábil), formatado como 'dd/mm/aaaa a
-    dd/mm/aaaa'.
+    dd/mm/aaaa'. Anos diferentes entre extrato e contábil são tratados
+    normalmente (min/max globais). Se um dos dois lados estiver vazio ou
+    sem nenhuma data válida, usa só o outro lado, sem quebrar. Datas
+    inválidas são ignoradas individualmente (`errors='coerce'`).
 
-    Bug corrigido (E2E real, ver issue): o campo "Período" do relatório
-    usava `datetime.now().strftime('%B/%Y')` como valor padrão — ou seja,
-    o mês em que o PDF foi GERADO (ex.: "September/2026"), não o
-    intervalo real das transações analisadas. Se nenhuma data válida for
-    encontrada nos dados, cai de volta no mês de geração (não há outro
-    valor sensato a mostrar).
+    Bug corrigido (E2E real, ver issue XCRE-42): o campo "Período" do
+    relatório usava `datetime.now().strftime('%B/%Y')` como valor padrão
+    — ou seja, o mês em que o PDF foi GERADO (ex.: "September/2026"), não
+    o intervalo real das transações analisadas.
+
+    XCRE-54 item 2: o campo manual da barra lateral que permitia ao
+    usuário corrigir esse valor foi removido — este cálculo automático é
+    agora a ÚNICA fonte do período exibido (capa, seção de auditoria e
+    lote da auditoria). Por isso, sem nenhuma data válida em nenhum dos
+    dois lados, não é mais aceitável cair de volta silenciosamente no mês
+    de geração (pareceria um período real, mas não é): devolve uma
+    mensagem clara em português.
     """
     datas = []
     for df in (extrato_df, contabil_df):
@@ -42,7 +52,7 @@ def calcular_periodo_real(extrato_df: pd.DataFrame, contabil_df: pd.DataFrame) -
                 datas.append(serie.max())
 
     if not datas:
-        return datetime.now().strftime('%B/%Y')
+        return "Período não determinado (nenhuma data válida nos arquivos carregados)"
 
     data_inicio = min(datas)
     data_fim = max(datas)
@@ -63,6 +73,7 @@ def main():
                 print("Aviso: Não foi possível definir o locale para Português. Usando solução manual...")
 
     st.set_page_config(page_title="Relatório de Análise", page_icon="📄", layout="wide")
+    aplicar_tema()
 
     audit = get_audit_logger()
     _usuario_logado = get_current_user()
@@ -264,12 +275,9 @@ def main():
     empresa_nome = st.sidebar.text_input("Nome da Empresa", "")
     contador_nome = st.sidebar.text_input("Nome do Contador (Analista)", "")
     classificacao_documento = st.sidebar.text_input("Classificação do documento", "Documento interno")
-    meta_cobertura_input = st.sidebar.text_input(
-        "Meta de cobertura (opcional, referência interna)", "",
-        help="Só aparece no relatório Executivo se preenchida. Deixe em branco para não exibir nenhuma meta.",
-    )
-    periodo_relatorio = st.sidebar.text_input("Período da Análise",
-                                            calcular_periodo_real(extrato_filtrado, contabil_filtrado))
+    # XCRE-54 item 2: sem campo manual / override — o período é sempre o
+    # automático, calculado a partir das datas reais dos arquivos carregados.
+    periodo_relatorio = calcular_periodo_real(extrato_filtrado, contabil_filtrado)
 
     # Pré-visualização do relatório
     st.header("📋 Resumo da Análise")
@@ -556,7 +564,6 @@ def main():
                         periodo=periodo_relatorio,
                         observacoes=observacoes,
                         conta_analisada=conta_analisada,
-                        meta_cobertura=meta_cobertura_input,
                     )
 
                     # Verificar se o conteúdo foi lido
@@ -598,11 +605,8 @@ def main():
                     st.success(f"✅ Relatório {formato_relatorio} gerado com sucesso!")
                     st.info(f"📋 Conta incluída no relatório: **{conta_analisada}**")
                     
-                    # Pré-visualização embutida
-                    st.subheader("👁️ Pré-visualização do PDF")
-                    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
-                    st.markdown(pdf_display, unsafe_allow_html=True)
+                    # Sem pré-visualização embutida: o Chrome bloqueia PDF em iframe com data: URL
+                    # ("conteúdo bloqueado pelo Chrome"); o PDF é entregue pelo botão de download acima.
                     
                 except Exception as e:
                     audit.log_report_generation(
