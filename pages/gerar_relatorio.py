@@ -264,10 +264,6 @@ def main():
     empresa_nome = st.sidebar.text_input("Nome da Empresa", "")
     contador_nome = st.sidebar.text_input("Nome do Contador (Analista)", "")
     classificacao_documento = st.sidebar.text_input("Classificação do documento", "Documento interno")
-    meta_cobertura_input = st.sidebar.text_input(
-        "Meta de cobertura (opcional, referência interna)", "",
-        help="Só aparece no relatório Executivo se preenchida. Deixe em branco para não exibir nenhuma meta.",
-    )
     periodo_relatorio = st.sidebar.text_input("Período da Análise",
                                             calcular_periodo_real(extrato_filtrado, contabil_filtrado))
 
@@ -556,7 +552,6 @@ def main():
                         periodo=periodo_relatorio,
                         observacoes=observacoes,
                         conta_analisada=conta_analisada,
-                        meta_cobertura=meta_cobertura_input,
                     )
 
                     # Verificar se o conteúdo foi lido

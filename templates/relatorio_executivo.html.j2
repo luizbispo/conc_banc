@@ -148,9 +148,6 @@ h2,h3,h4,.lede,.headline{break-after:avoid}
       <div class="kpi"><span class="label">Saldo contábil</span><span class="value {{ 'neg' if saldo_contabil < 0 else '' }}"><small>R$</small>{{ "%.2f"|format(saldo_contabil)|replace(",", "@")|replace(".", ",")|replace("@", ".") }}</span><span class="note">Soma líquida de {{ total_contabil }} lançamentos</span></div>
       <div class="kpi alert"><span class="label">Diferença líquida</span><span class="value neg"><small>R$</small>{{ "%.2f"|format(diferenca_liquida)|replace(",", "@")|replace(".", ",")|replace("@", ".") }}</span><span class="note">Contábil − extrato · ver ponte na seção 5</span></div>
     </div>
-    {% if meta_cobertura %}
-    <p class="lede" style="margin-top:10px">Meta de cobertura de referência informada: {{ meta_cobertura }}.</p>
-    {% endif %}
   </div>
 </section>
 
