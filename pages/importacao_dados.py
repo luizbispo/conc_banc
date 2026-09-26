@@ -1089,8 +1089,8 @@ def _analisar_linha_detalhe(linha):
 def processar_pdf(arquivo):
     """Tenta extrair dados de PDF com texto"""
     try:
-        import PyPDF2
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(arquivo.read()))
+        import pypdf
+        pdf_reader = pypdf.PdfReader(io.BytesIO(arquivo.read()))
 
         num_paginas = len(pdf_reader.pages)
         if num_paginas > MAX_PDF_PAGINAS:

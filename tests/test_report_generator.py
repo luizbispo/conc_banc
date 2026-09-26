@@ -13,7 +13,7 @@ Dados 100% sintéticos.
 """
 import pandas as pd
 import pytest
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from pages.gerar_relatorio import calcular_periodo_real
 from modules.report_generator import (

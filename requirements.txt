@@ -3,7 +3,7 @@ pandas==2.3.3
 numpy==2.2.6
 plotly==7.1.0
 ofxparse==0.21
-PyPDF2==3.0.1
+pypdf==6.19.0
 fpdf==1.7.2
 python-dotenv==1.2.3
 PyJWT==2.15.0

@@ -21,7 +21,7 @@ from unittest import mock
 import pandas as pd
 import pytest
 from ofxparse import OfxParser
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from modules.data_analyzer import (
     DataAnalyzer,
