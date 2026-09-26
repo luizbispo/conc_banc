@@ -87,3 +87,12 @@ div.stButton > button {
 footer {
     visibility: hidden;
 }
+
+/* Texto claro sobre a sidebar navy (legibilidade: o tema global usa texto escuro) */
+[data-testid="stSidebar"] :is(p, span, label, li, h1, h2, h3, h4, a, small) {
+    color: #E2E8F0;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"],
+[data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"][aria-current="page"] {
+    background-color: rgba(255, 255, 255, 0.12);
+}
