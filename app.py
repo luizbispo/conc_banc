@@ -460,6 +460,42 @@ def check_authentication():
 
     return True
 
+# --- HOME v3 (fase 6, XCRE-54 item 5): 3 cartões de etapa ---
+# Ícones SVG inline (thin line, viewBox 24x24) do anexo icones.svg.md da
+# issue (design system v3) — conteúdo ESTÁTICO do repositório, nunca
+# interpolado com dado do usuário.
+_ICONE_UPLOAD = (
+    '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>'
+    '<polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'
+)
+_ICONE_ANALISE = (
+    '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+    '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'
+    '<path d="M11 8v6"/><path d="M8 11h6"/></svg>'
+)
+_ICONE_RELATORIO = (
+    '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>'
+    '<polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/>'
+    '<line x1="8" y1="17" x2="16" y2="17"/></svg>'
+)
+
+# Rótulos EXATOS pedidos pela issue (cada um com <= 6 palavras) — a Home
+# não inventa nome de produto nem texto de etapa diferente deste.
+_ETAPAS_HOME = (
+    {"numero": 1, "rotulo": "Importação de Dados", "pagina": "pages/importacao_dados.py",
+     "icone_svg": _ICONE_UPLOAD, "chave": "home_card_importacao"},
+    {"numero": 2, "rotulo": "Análise de Divergências", "pagina": "pages/analise_dados.py",
+     "icone_svg": _ICONE_ANALISE, "chave": "home_card_analise"},
+    {"numero": 3, "rotulo": "Relatório Final", "pagina": "pages/gerar_relatorio.py",
+     "icone_svg": _ICONE_RELATORIO, "chave": "home_card_relatorio"},
+)
+
+
 # --- LAYOUT PRINCIPAL APÓS LOGIN ---
 def show_main_app():
     """Exibe a aplicação principal após login"""
@@ -495,91 +531,27 @@ def show_main_app():
         st.page_link("pages/analise_dados.py", label="📊 Análise de Divergências", icon=None)
         st.page_link("pages/gerar_relatorio.py", label="📝 Relatório Final", icon=None)
 
-    # Conteúdo principal
+    # Conteúdo principal — Home v3 (fase 6, XCRE-54 item 5): SOMENTE as
+    # opções das 3 etapas do fluxo, como 3 cartões iguais e clicáveis.
+    # Tudo o mais que existia aqui (boas-vindas longas, blocos de
+    # funcionalidades, "Sobre o Sistema", status/resumo da sessão,
+    # atalho "Nova Análise") foi removido por decisão do usuário. Ícones
+    # SVG inline vêm do anexo icones.svg.md (design system v3) — texto
+    # estático do repositório, nunca dado do usuário.
     st.title("🏦 Sistema de Conciliação Bancária")
-    st.markdown(f"""
-    ### Olá, {st.session_state.user['full_name']}!
-    
-    Sistema para análise e conciliação de extratos bancários e lançamentos contábeis
 
-    **Funcionalidades principais:**
-    - **Importação** de extratos bancários e lançamentos contábeis
-    - **Análise inteligente** com matching em múltiplas camadas  
-    - **Relatórios em PDF** para documentação
-
-    **Fluxo recomendado:**
-    1. **Importação** → Carregue os arquivos bancários e contábeis
-    2. **Análise** → Sistema identifica correspondências automaticamente
-    3. **Relatório** → Gere PDF para documentação e auditoria
-    """)
-
-    # Navegação entre páginas
-    st.divider()
-    st.subheader("Iniciar Conciliação")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("Importação de Dados", width='stretch'):
-            st.switch_page("pages/importacao_dados.py")
-
-    with col2:
-        if st.button("Análise de Dados", width='stretch'):
-            st.switch_page("pages/analise_dados.py")
-
-    with col3:
-        if st.button(" Gerar Relatório", width='stretch'):
-            st.switch_page("pages/gerar_relatorio.py")
-
-    # Informações do sistema
-    with st.sidebar:
-        st.header("ℹ️ Sobre o Sistema")
-        st.markdown("""
-        **Versão:** 2.5.0     
-        **Desenvolvido para:** Empresas e contadores  
-        **Desenvolvido por:** Luiz Bispo (X-Testing)
-                    
-        **Funcionalidades:**
-        - Sistema de autenticação seguro
-        - Suporte a OFX, CSV, CNAB
-        - Matching inteligente
-        - Auditoria completa
-        - Relatórios em PDF
-        """)
-        
-        # Status da sessão atual
-        st.divider()
-        st.subheader("📊 Status da Sessão")
-        
-        if 'extrato_carregado' in st.session_state:
-            st.success("✅ Extrato carregado")
-        else:
-            st.warning("📥 Aguardando extrato")
-        
-        if 'contabil_carregado' in st.session_state:
-            st.success("✅ Lançamentos carregados")
-        else:
-            st.warning("📥 Aguardando lançamentos")
-        
-        if 'resultados_analise' in st.session_state:
-            st.success("✅ Análise concluída")
-        
-        if 'matches_aprovados' in st.session_state:
-            st.success(f"✅ {len(st.session_state.matches_aprovados)} conciliações aprovadas")
-
-    # Limpar sessão
-    st.sidebar.divider()
-    if st.sidebar.button("🔄 Nova Análise", width='stretch'):
-        keys_to_clear = [
-            'extrato_carregado', 'contabil_carregado', 'caminho_extrato', 
-            'caminho_contabil', 'resultados_analise', 'extrato_df', 
-            'contabil_df', 'matches_aprovados', 'matches_rejeitados', 
-            'matches_pendentes', 'conta_analisada'
-        ]
-        for key in keys_to_clear:
-            if key in st.session_state:
-                del st.session_state[key]
-        st.rerun()
+    for coluna, etapa in zip(st.columns(3), _ETAPAS_HOME):
+        with coluna:
+            st.markdown(
+                '<div class="step-card">'
+                f'<div>{etapa["icone_svg"]}</div>'
+                f'<div class="step-number">Etapa {etapa["numero"]}</div>'
+                f'<div class="step-label">{etapa["rotulo"]}</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            if st.button(etapa["rotulo"], key=etapa["chave"], width='stretch'):
+                st.switch_page(etapa["pagina"])
 
 def show_user_management_section():
     """Mostra a interface de gerenciamento de usuários"""
