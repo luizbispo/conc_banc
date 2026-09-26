@@ -35,6 +35,7 @@ from modules.report_executivo import (
     montar_contexto_executivo,
     _url_fetcher_seguro,
 )
+from pages.gerar_relatorio import calcular_periodo_real
 
 EXEMPLOS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Exemplos")
 
@@ -149,6 +150,17 @@ def test_golden_b_x_c_contexto_bate_com_o_modelo(resultados_b_x_c):
 
     diffs = sorted(round(l["diferenca"], 2) for l in ctx["matches_similaridade_linhas"])
     assert diffs == [-3.00, 0.00, 2.00]
+
+
+# --- XCRE-54 item 2: sem campo/override manual de período, o valor
+# usado na capa/auditoria/lote é sempre o automático de
+# calcular_periodo_real. No caso de referência B×C esse cálculo
+# automático precisa continuar batendo exatamente com o período
+# documentado ("15/06/2025 a 16/07/2025"). ---
+
+def test_periodo_automatico_bate_com_o_caso_referencia_b_x_c(resultados_b_x_c):
+    _resultados, extrato, contabil = resultados_b_x_c
+    assert calcular_periodo_real(extrato, contabil) == "15/06/2025 a 16/07/2025"
 
 
 def test_golden_b_x_c_pdf_contem_os_valores_do_modelo(pdf_executivo_b_x_c):
