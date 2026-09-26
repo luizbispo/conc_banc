@@ -17,6 +17,7 @@ from modules.performance_optimizer import chunker, cache_manager
 from modules.auth_middleware import enforce_auth, get_current_user
 from modules.audit_logger import get_audit_logger
 from modules.structured_logger import get_structured_logger
+from modules.tema import aplicar_tema
 
 # Esta página processa uploads de arquivos (a principal superfície de dado
 # externo não confiável do sistema) e, diferente das demais páginas
@@ -364,6 +365,7 @@ with st.sidebar:
 # --- Fim do Menu Customizado ---
 
 st.set_page_config(page_title="Importação de Dados", page_icon="📥", layout="wide")
+aplicar_tema()
 
 st.title("📥 Importação de Dados para Conciliação")
 st.markdown("Escolha o método de importação e siga as instruções para carregar seus dados")

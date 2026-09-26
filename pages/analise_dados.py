@@ -14,6 +14,7 @@ from modules.interactive_dashboard import get_dashboard
 from modules.audit_logger import get_audit_logger
 from modules.export_divergencias import gerar_csv_divergencias
 from modules.structured_logger import get_structured_logger
+from modules.tema import aplicar_tema
 
 audit = get_audit_logger()
 
@@ -69,6 +70,7 @@ def _registrar_auditoria_matching(resultados_finais: dict, tolerancia_percentual
 @require_auth
 def main():
     st.set_page_config(page_title="Análise de Correspondências", page_icon="🔍", layout="wide")
+    aplicar_tema()
 
     # --- Menu Customizado ---
     with st.sidebar:

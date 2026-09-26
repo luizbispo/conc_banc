@@ -25,6 +25,7 @@ from modules.auth_middleware import (
 )
 from modules.audit_logger import get_audit_logger, AuditAction, AuditSeverity
 from modules.structured_logger import get_structured_logger
+from modules.tema import aplicar_tema
 
 # Configuração da página
 st.set_page_config(
@@ -33,6 +34,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# XCRE-54 item 4: tema v3 (fase 6) aplicado uma vez por execução da
+# página, logo após a configuração — antes de login ou home renderizar.
+aplicar_tema()
 
 # --- CONFIGURAÇÕES DE SEGURANÇA ---
 # SECRET_KEY, hashing de senha e limitação de tentativas agora vêm de

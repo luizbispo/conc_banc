@@ -12,6 +12,7 @@ from difflib import SequenceMatcher
 from modules.auth_middleware import require_auth, get_current_user
 from modules.audit_logger import get_audit_logger
 from modules.structured_logger import get_structured_logger
+from modules.tema import aplicar_tema
 
 
 # parse_valor_moeda mudou de casa para modules/report_generator.py (é
@@ -72,6 +73,7 @@ def main():
                 print("Aviso: Não foi possível definir o locale para Português. Usando solução manual...")
 
     st.set_page_config(page_title="Relatório de Análise", page_icon="📄", layout="wide")
+    aplicar_tema()
 
     audit = get_audit_logger()
     _usuario_logado = get_current_user()
