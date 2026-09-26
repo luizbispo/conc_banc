@@ -16,6 +16,8 @@
 | 5 | 13 | 12 | 0 | 1 | 5 itens de robustez; verificação integrada (pytest 271, E2E 13/13, PDF 9 páginas idêntico ao baseline). O `FAIL` do decimal `,` no CSV real (CT-F5-05) foi corrigido na Fase 5b e passou a constar como `PASS` com evidência nova |
 | 5b | 8 | 7 | 0 | 1 | Gate de verificação após as 3 rodadas da Fase 5b (pytest 292, E2E 17/17, invariantes B × C, PDF Executivo de 9 páginas rasterizado); o `NÃO EXECUTADO` é a lista de itens fora do escopo (CT-F5B-08) |
 | 5c | 8 | 7 | 0 | 1 | Gate de verificação após as 5 rodadas da Fase 5c (pytest 375, E2E 18/18, invariantes B × C, PDF Executivo de 9 páginas rasterizado); o `NÃO EXECUTADO` é a lista de itens fora do escopo (CT-F5C-08), incluindo os casos de tempo real `CT-AUTH-03`/`CT-AUTH-05` |
+| 5d | 8 | 7 | 0 | 1 | Migração PyPDF2 → pypdf e mensagem única de limite (verificação integrada R1; pytest 393, E2E 21/21, PDF Executivo de 9 páginas); o `NÃO EXECUTADO` é a lista de itens fora do escopo (CT-F5D-08) |
+| 6 | 10 | 9 | 0 | 1 | Remoção da meta e do período manual, tema v3 e Home v3 (verificação integrada; pytest 425, E2E 25/25, invariantes B × C, PDF Executivo de 9 páginas sem “meta”, comparação das 5 telas com os mockups); o `NÃO EXECUTADO` é a lista de itens fora do escopo, incluindo os casos de tempo real `CT-AUTH-03`/`CT-AUTH-05` (CT-F6-10) |
 
 *Contagens feitas automaticamente sobre as linhas “Status de execução” de cada caso.*
 
@@ -3577,3 +3579,483 @@ verificados** nesta rodada:
 5. **`pip-audit` e Python 3.12/3.13 não repetidos** — seguem com D1/A1;
    nenhum número desta rodada deve ser lido como re-verificação dessas duas
    checagens.
+
+---
+
+## Fase 6 — Meta fora do relatório, período automático, tema v3 e Home v3 (verificação integrada)
+
+### Escopo, evidência e dependências
+
+Esta seção registra a **verificação por execução da Fase 6** da issue
+XCRE-54, executada pelo revisor rápido sobre os 5 commits do desenvolvedor
+principal (Claude pago): `66cb25b` (item 1), `ffd79d0` (item 2),
+`97475b0` (item 3), `1326411` (item 4) e `31e9650` (item 5), todos sobre
+`71ea58b` (merge do PR #12 — Fase 5d). O checkout do revisor foi apenas
+avançado em fast-forward até `31e9650`, de forma que os 5 commits são **os
+mesmos hashes** produzidos nas rodadas — sem rebase e sem reescrita de
+histórico. **Nenhum arquivo de produção foi alterado nesta verificação**: a
+única edição é este arquivo (`docs/casos-de-teste.md`), mais o PDF
+regenerado a partir dele.
+
+**Commits e arquivos revisados (`git diff --stat 31e9650~5..31e9650` → 14
+arquivos, +873/−120):**
+
+| Commit | Item | Arquivos |
+|---|---|---|
+| `66cb25b` | 1 — remover a meta de cobertura configurável (4 arquivos, +57/−20) | `modules/report_executivo.py`, `pages/gerar_relatorio.py`, `templates/relatorio_executivo.html.j2`, `tests/test_relatorio_executivo.py` |
+| `ffd79d0` | 2 — período do relatório sempre automático (3 arquivos, +83/−16) | `pages/gerar_relatorio.py`, `tests/test_relatorio_executivo.py`, `tests/test_report_generator.py` |
+| `97475b0` | 3 — config v3 + helper idempotente de tema (4 arquivos, +262/−1) | `.streamlit/config.toml`, `assets/custom.css` (novo), `modules/tema.py` (novo), `tests/test_tema.py` (novo) |
+| `1326411` | 4 — `aplicar_tema()` nos 4 pontos de entrada (5 arquivos, +197/−0) | `app.py`, `pages/analise_dados.py`, `pages/gerar_relatorio.py`, `pages/importacao_dados.py`, `tests/test_tema_aplicado_nas_paginas.py` (novo) |
+| `31e9650` | 5 — Home v3 com 3 cartões de etapa clicáveis (2 arquivos, +274/−83) | `app.py`, `tests/test_home_v3.py` (novo) |
+
+**Ambiente desta execução (real, local):**
+
+- Python 3.10.12; pytest 9.1.1; Streamlit 1.64.0; Playwright 1.62 (Chromium
+  headless); WeasyPrint 70.0; poppler 22.02.0 (`pdfinfo`/`pdftotext`/
+  `pdffonts`); Pillow para a montagem das comparações.
+- Suíte: `python3 -m pytest tests/ -q` no checkout em `31e9650`; linha de
+  base extraída com `git archive 71ea58b` e rodada no mesmo ambiente.
+- E2E: `bash run_e2e6.sh` → `streamlit run app.py` local (porta **8596**),
+  banco de usuários, audit e log estruturado apontando para
+  `e2e_out/f6/estado/` (fora dos caminhos padrão do repositório, apagados no
+  início de cada execução); banco recém-criado (zerado), login sintético
+  `admin`/`admin123`. Roteiro: `e2e_fase6.py` (25 verificações
+  `CT-F6-E2E-*`), servidor morto pelo `trap` do script no final.
+- Somente dados sintéticos: `Exemplos/B_1234490.ofx` e
+  `Exemplos/C_1234490.ofx`. **Nenhum dado real foi usado.**
+- Mockups das 5 telas baixados dos anexos da própria issue
+  (`mockup-login.png`, `mockup-home.png`, `mockup-importacao.png`,
+  `mockup-analise.png`, `mockup-relatorio.png`).
+- Comandos do gate: `git log/show` dos 5 commits; `python3 -m pytest
+  tests/ -q`; `python3 -m pytest tests/ -q --collect-only`; extração da
+  linha de base `71ea58b` com `git archive` e `pytest` nela; contagem
+  arquivo a arquivo com `--collect-only`; `bash run_e2e6.sh`;
+  `python3 check_invariantes.py .`; `pdfinfo`/`pdftotext -layout`/`pypdf`
+  no PDF baixado; `grep -rniI "\bmeta\b"` nos arquivos de produção;
+  montagem lado a lado (mockup × tela real) com Pillow e leitura visual das
+  5 montagens; `python3 scripts/gerar_pdf_casos_de_teste.py` após editar
+  este arquivo.
+
+**Casos que dependem de espera de tempo real (identificados ANTES de
+executar):** `CT-AUTH-03` (liberação após os 15 min de bloqueio de login) e
+`CT-AUTH-05` (expiração de sessão, `JWT_EXPIRATION_HOURS = 24`). Ambos foram
+**identificados e excluídos desta execução** — nenhum caso da Fase 6
+(`CT-F6-01..10`) depende de tempo real, e as esperas do script E2E são
+apenas sincronização de interface. Os dois seguem `NAO EXECUTADO` até uma
+rodada posterior, com confirmação explícita do usuário (ver CT-F6-10).
+
+**Evidência desta rodada:**
+
+| Verificação | Resultado observado |
+|---|---|
+| Suíte completa | `pytest tests/ -q` → **425 passed, 1 skipped, 48 warnings** (63,76 s); `--collect-only` → **426 testes** |
+| Linha de base `71ea58b` | extraída com `git archive` e rodada no mesmo ambiente → **393 passed, 1 skipped** (394 coletados, 68,72 s) → **+32 testes** |
+| Origem dos +32 | novos `tests/test_home_v3.py` (12), `tests/test_tema.py` (11) e `tests/test_tema_aplicado_nas_paginas.py` (4) = **+27**; `tests/test_relatorio_executivo.py` 27 → 30 (**+3**); `tests/test_report_generator.py` 7 → 9 (**+2**) |
+| Único ignorado | `tests/test_pluralizacao.py:94` (“gerar_relatorio_executivo exige DataFrames não vazios”) — mesmo da linha de base; nenhum teste da Fase 6 ganhou `skip` |
+| Testes da Fase 6 isolados | `pytest tests/test_tema.py tests/test_tema_aplicado_nas_paginas.py tests/test_home_v3.py -q` → **27 passed** |
+| Item 1 (meta) — diff | `meta_cobertura` removido de `montar_contexto_executivo` e `gerar_relatorio_executivo` (`modules/report_executivo.py`), do `st.sidebar.text_input("Meta de cobertura …")` (`pages/gerar_relatorio.py`) e da seção condicional do template |
+| Item 1 (meta) — grep de produção | `grep -rniI "\bmeta\b"` em `app.py`, `pages/`, `modules/`, `templates/`, `assets/`, `.streamlit/` → só `<meta charset="utf-8">` e as classes `.cover-meta` (grade de metadados da capa, sem relação com meta de cobertura) |
+| Item 2 (período) — diff | sidebar perde o `text_input("Período da Análise", …)`; `periodo_relatorio = calcular_periodo_real(extrato_filtrado, contabil_filtrado)` é a única fonte, alimentando capa, seção de auditoria e lote da auditoria; sem data válida em nenhum dos lados devolve “Período não determinado (nenhuma data válida nos arquivos carregados)” em vez do mês de geração |
+| Sidebar do relatório no E2E | labels **exatamente** `["Nome da Empresa", "Nome do Contador (Analista)", "Classificação do documento"]` — sem campo de META e sem campo de PERÍODO; campos esperados remanescentes: `faltantes=[]`; **0** ocorrências de “meta” na página (case-insensitive) |
+| Métricas na tela (E2E) | Transações/Lançamentos **18 × 18**; Período Analisado **15/06 a 14/07/2025**; Transações Analisadas `18` com delta **“14 com correspondência”**; Cobertura **77.8%**; Itens em Divergência **8**; Correspondências **14**; Taxa de Conciliação **77.8%** |
+| E2E real (Streamlit + navegador) | **25 de 25 verificações `PASS`, 0 `FAIL`** (códigos `CT-F6-E2E-1a/1b`, `2a–2d`, `3a–3c`, `4a`, `5a–5d`, `6a–6d`, `7a–7f`, `8`; porta 8596, banco/log isolados, login sintético em banco zerado); **executado 2× nesta rodada, 25/25 nas duas** |
+| Invariantes B × C (fora da UI) | `total_extrato 18`, `total_contabil 18`, `matches_exatos 11` + `matches_heuristicos 3` = **14**, cobertura **77,8%**, efetiva **61,1%**, divergências **4 + 4**, somas 1.386,22 / 1.538,93, diferença líquida **147,55**, resíduo **R$ 0,00**, ponte **fecha** |
+| PDF Executivo | baixado pela interface: **60.457 bytes** (60.463 na reexecução — só o carimbo de hora muda), A4, WeasyPrint 70.0, **9 páginas** (`pdfinfo` e `pypdf`); período `15/06/2025 a 16/07/2025` **×3**; **0** ocorrências case-insensitive de “meta” (`pdftotext -layout` e extração por `pypdf`); invariantes `77,8%` ×4, `61,1%` ×4, `147,55` ×8, `R$ 0,00` ×2; **0** ocorrências de credencial, caminho interno ou `Traceback` |
+| Tema (itens 3 e 4) | `assets/custom.css` sem `@import`/`url()`/`http(s)://` e sem seletor de classe com hash do Streamlit; `aplicar_tema()` chamado 1× nos 4 pontos de entrada (`app.py`, `analise_dados.py`, `gerar_relatorio.py`, `importacao_dados.py`), confirmado por `AppTest` e mock |
+| Home v3 (item 5) | E2E: exatamente **3 botões de etapa** (`Importação de Dados`, `Análise de Divergências`, `Relatório Final`), 3 cartões `.step-card` com SVG inline e número da etapa, blocos removidos **ausentes** (`encontrados=[]`), título/sidebar “Navegação Principal”/botão “Sair” preservados, e os 3 cartões **navegam** para a página correspondente |
+| Rasterização das telas | 5 telas gravadas em `e2e_out/f6/` (`f6_tela1_login.png` … `f6_tela5_relatorio.png`) e montadas lado a lado com os 5 mockups (`cmp_1_login.png` … `cmp_5_relatorio.png`), comparadas visualmente (ver CT-F6-09) |
+
+**Limitações declaradas desta rodada:** (a) o squad não tem credencial Git —
+sem push e sem PR, os commits (incluindo este) ficam só nos worktrees locais;
+(b) `CT-AUTH-03` (15 min) e `CT-AUTH-05` (24 h) são casos de tempo real,
+**identificados e não executados** nesta rodada (CT-F6-10); (c) a captura das
+telas usou `full_page=True`, que devolve **1440×900** neste app — o conteúdo
+abaixo do fold em páginas longas (importação, análise) fica cortado, então a
+comparação visual cobre o que a captura mostrou e não todo o scroll;
+(d) a comparação com os mockups é **qualitativa** (leitura visual de pares
+lado a lado), não um teste automatizado de pixels nem de tolerância;
+(e) as evidências de execução (telas, JSONs, PDF do E2E, log) ficam fora do
+repositório e não são entregáveis versionados; (f) tokens: o ambiente não
+expõe a métrica de consumo deste agente, então nenhum número é declarado
+para esta rodada; (g) revisão limitada a rodar e conferir — arquitetura,
+design e segurança mais profunda ficam com o arquiteto, como de costume do
+cargo.
+
+#### CT-F6-01 — Revisão dos 5 commits da Fase 6
+
+**Objetivo:** Ler os diffs completos dos 5 commits e conferir que cada um
+entrega somente o item da sua rodada, sem mistura de escopo.
+
+**Pré-condição:** checkout do revisor em `31e9650` com `git status` limpo.
+
+**Passos:**
+
+1. `git log --oneline -6` e `git diff --stat 31e9650~5..31e9650`.
+2. `git show 66cb25b`, `git show ffd79d0`, `git show 97475b0`,
+   `git show 1326411` e `git show 31e9650`, lendo os arquivos de produção
+   alterados de cada um.
+3. `grep -rniI "\bmeta\b"` e `grep -rn "periodo" pages/gerar_relatorio.py`
+   para conferir o resultado final nos arquivos de produção.
+
+**Resultado esperado:** item 1 só na remoção da meta; item 2 só no período
+automático; itens 3 e 4 no tema (config + helper + chamadas); item 5 só na
+Home; nenhum outro arquivo de produção tocado.
+
+**Status de execução:** `PASS` — 14 arquivos, +873/−120, e o escopo de cada
+commit confere com a sua mensagem: `66cb25b` remove `meta_cobertura` das 3
+camadas (assinatura, contexto, template) e o campo da sidebar; `ffd79d0`
+remove o `text_input` de período e torna `calcular_periodo_real` a única
+fonte (com fallback explícito em português); `97475b0` cria
+`assets/custom.css` + `modules/tema.py` e ajusta `config.toml`;
+`1326411` só adiciona a chamada `aplicar_tema()` nos 4 pontos de entrada
+(+197/−0, sem tocar em lógica de auth/navegação); `31e9650` reduz
+`show_main_app()` aos 3 cartões e adiciona `tests/test_home_v3.py`. Dois
+commits de teste tocam `tests/` apenas (`test_relatorio_executivo.py`,
+`test_report_generator.py`).
+
+#### CT-F6-02 — Suíte completa de regressão após os 5 commits
+
+**Objetivo:** Rodar a suíte inteira no código da Fase 6 e comparar com a
+linha de base da Fase 5d no mesmo ambiente.
+
+**Pré-condição:** checkout em `31e9650`; linha de base `71ea58b` extraída
+com `git archive` para diretório separado.
+
+**Passos:**
+
+1. `python3 -m pytest tests/ -q` e `python3 -m pytest tests/ -q --collect-only`.
+2. Rodar `python3 -m pytest tests/ -q` no diretório da linha de base.
+3. Contar testes arquivo a arquivo (`--collect-only`) nos 5 arquivos de
+   teste tocados pela Fase 6, nos dois lados.
+
+**Resultado esperado:** todos os testes verdes; nenhuma perda de cobertura;
+diferença de contagem explicada apenas pelos testes novos da fase.
+
+**Status de execução:** `PASS` — **425 passed, 1 skipped, 48 warnings** em
+63,76 s (426 coletados) contra **393 passed, 1 skipped** na linha de base
+(68,72 s): **+32 testes**, todos originários dos arquivos da Fase 6 (27 em
+arquivos novos, +3 em `test_relatorio_executivo.py`, +2 em
+`test_report_generator.py`). O único `skip` é o mesmo da linha de base
+(`tests/test_pluralizacao.py:94`), pré-existente e sem relação com a fase.
+
+#### CT-F6-03 — E2E real com Streamlit local e navegador
+
+**Objetivo:** Percorrer login → Home v3 → importação → análise → relatório
+→ PDF em um navegador real, verificando os 5 itens da issue na interface.
+
+**Pré-condição:** repositório em `31e9650`; porta 8596 livre; estado do E2E
+isolado em `e2e_out/f6/estado/` (apagado no início).
+
+**Passos:**
+
+1. `bash run_e2e6.sh` — sobe o Streamlit com DB/audit/log isolados, espera o
+   health check e roda `python3 e2e_fase6.py --repo … --port 8596 --out … --tag f6`.
+2. Conferir o JSON de resultados: 25 códigos `CT-F6-E2E-*`.
+3. Conferir os artefatos gerados: 5 telas, métricas, labels da sidebar,
+   texto do PDF.
+
+**Resultado esperado:** 25/25 `PASS`, sem `FAIL`, com os artefatos gravados.
+
+**Status de execução:** `PASS` — **25 de 25 verificações `PASS`, 0 `FAIL`**:
+`1a/1b` (login e Home), `2a–2d` (3 botões, 3 cartões com SVG/número, blocos
+removidos ausentes, título/sidebar/Sair preservados), `3a–3c` (cada cartão
+navega para a sua página), `4a` (18 × 18), `5a–5d` (77,8%, 18 × 18, delta
+“14 com correspondência”, 8 divergências), `6a–6d` (sidebar sem META e sem
+PERÍODO, campos esperados intactos, 0 ocorrências de “meta”), `7a–7f` (PDF
+baixado, 9 páginas, período correto, 0 “meta”, invariantes, sem
+credencial/caminho/traceback) e `8` (as 5 telas rasterizadas). Dois ajustes
+foram feitos **no script, não na aplicação**, durante a montagem: (i) uma
+f-string com barra invertida quebrava em Python 3.10 (sintaxe, antes de
+rodar); (ii) o check do rótulo da etapa passou a case-insensitive porque a
+UI o renderiza como `ETAPA N` via CSS `text-transform: uppercase` — era um
+falso negativo meu, não um bug da app; a reexecução fechou 25/25. Ao final da
+rodada, **o gate inteiro foi executado uma segunda vez** (`bash run_e2e6.sh`)
+como conferência depois da edição deste catálogo: **25/25 de novo, `exit=0`**,
+regenerando as 5 telas que foram anexadas ao comentário da issue — os valores
+da sidebar, das métricas e do PDF ficaram idênticos aos da primeira execução
+(só o tamanho do PDF variou de 60.457 para 60.463 bytes, pelo carimbo de
+hora).
+
+#### CT-F6-04 — Item 1: a meta de cobertura configurável não existe mais
+
+**Objetivo:** Confirmar por diff, por grep na produção e pela interface que
+nenhum campo, parâmetro ou texto de “meta” de cobertura sobrou — só a
+cobertura calculada é indicador.
+
+**Pré-condição:** CT-F6-01 e CT-F6-03 concluídos; PDF Executivo baixado na
+mesma execução.
+
+**Passos:**
+
+1. Ler `git show 66cb25b` e conferir as 3 remoções (funções, sidebar,
+   template).
+2. `grep -rniI "\bmeta\b"` nos arquivos de produção.
+3. No E2E: listar os labels da barra lateral do relatório e contar
+   ocorrências de “meta” na página (`CT-F6-E2E-6a`, `6d`).
+4. No PDF baixado: `pdftotext -layout` + extração `pypdf`, contagem
+   case-insensitive de “meta” (`CT-F6-E2E-7d`).
+
+**Resultado esperado:** parâmetro e campo inexistentes; sidebar só com os 3
+campos de identificação; página e PDF com 0 ocorrências de “meta”.
+
+**Status de execução:** `PASS` — `meta_cobertura` ausente: as assinaturas de
+`montar_contexto_executivo` e `gerar_relatorio_executivo` não têm mais
+`meta_cobertura` (e um teste cobre o `**kwargs` legado), o
+`st.sidebar.text_input("Meta de cobertura …")` saiu de `pages/gerar_relatorio.py`
+e a seção condicional saiu do template. Grep de produção: só `<meta charset>`
+e as classes `.cover-meta` da grade da capa. E2E: labels exatamente
+`["Nome da Empresa", "Nome do Contador (Analista)", "Classificação do
+documento"]` e `ocorrencias=0`. PDF: `n=0`.
+
+#### CT-F6-05 — Item 2: o período do relatório é sempre o calculado
+
+**Objetivo:** Confirmar que não há campo manual de período em lugar nenhum e
+que capa, auditoria e lote recebem o mesmo valor calculado dos dados.
+
+**Pré-condição:** importação sintética B × C concluída no E2E (18 × 18).
+
+**Passos:**
+
+1. Ler `git show ffd79d0` e conferir a remoção do `text_input("Período da
+   Análise")` e o uso único de `calcular_periodo_real`.
+2. No E2E: checar a ausência do campo na sidebar (`CT-F6-E2E-6b`) e o valor
+   exibido em “Período Analisado”.
+3. No PDF: procurar o período B × C exato (`CT-F6-E2E-7c`).
+
+**Resultado esperado:** sidebar sem campo de período; tela com
+`15/06 a 14/07/2025`; PDF com `15/06/2025 a 16/07/2025`.
+
+**Status de execução:** `PASS` — sidebar com os mesmos 3 labels do caso
+anterior (nenhum campo de período); “Período Analisado” na tela =
+`15/06 a 14/07/2025`; PDF com `15/06/2025 a 16/07/2025` em **3**
+ocorrências (capa, seção de auditoria e lote). O fallback sem data válida
+virou a mensagem “Período não determinado (nenhuma data válida nos arquivos
+carregados)” e os casos de borda (anos diferentes, um lado vazio, nenhum
+lado com data) têm teste próprio — 5 testes novos em
+`test_report_generator.py`/`test_relatorio_executivo.py`.
+
+#### CT-F6-06 — Itens 3 e 4: tema v3 aplicado nos 4 pontos de entrada
+
+**Objetivo:** Confirmar que o CSS/config v3 entrou sem fonte externa nem
+seletor frágil, e que o helper é chamado exatamente uma vez em cada ponto de
+entrada, sem quebrar login/navegação.
+
+**Pré-condição:** commits `97475b0` e `1326411` presentes no checkout.
+
+**Passos:**
+
+1. `git show 97475b0` e `git show 1326411`; ler `modules/tema.py`,
+   `assets/custom.css` e `.streamlit/config.toml`.
+2. Conferir no CSS a ausência de `@import`, `url()` e `http(s)://`, e no
+   `config.toml` a paleta navy com `showSidebarNavigation` preservado.
+3. Rodar `python3 -m pytest tests/test_tema.py
+   tests/test_tema_aplicado_nas_paginas.py -q` e os testes de smoke/login
+   relacionados.
+4. No E2E, logar e navegar pelas 3 páginas confirmando que o app autentica
+   e renderiza normalmente.
+
+**Resultado esperado:** helper idempotente, sem parâmetro e tolerante a
+arquivo ausente; 1 chamada por ponto de entrada; suíte verde; app
+funcionando no navegador.
+
+**Status de execução:** `PASS` — `modules/tema.py` define `aplicar_tema()`
+sem parâmetros, lê `assets/custom.css`, injeta via
+`st.markdown(unsafe_allow_html=True)`, devolve string vazia se o arquivo não
+existe e é idempotente (testes de injeção, idempotência e arquivo ausente
+passam). CSS sem rede externa (Inter com fallback `system-ui`), sem classe
+com hash do Streamlit, só `data-testid` estáveis e classes próprias
+(`.step-*`). `aplicar_tema()` aparece 1× em `app.py` (logo após
+`st.set_page_config`, cobrindo login e app autenticado) e 1× em cada uma das
+3 páginas — confirmado por `AppTest` (tema presente **e** campos de login
+preservados) e por mock (`call_count == 1`, cedo o bastante para não
+depender de dado de negócio): **27 passed** nos 2 arquivos de teste do tema,
+com a suíte completa verde (CT-F6-02) e o E2E logando/navegando (CT-F6-03).
+
+#### CT-F6-07 — Item 5: Home v3 com 3 cartões de etapa clicáveis
+
+**Objetivo:** Confirmar que a área principal da Home virou somente os 3
+cartões pedidos, com navegação real, e que os blocos removidos sumiram sem
+perder título, sidebar ou logout.
+
+**Pré-condição:** CT-F6-03 concluído (captura da Home e navegação pelos
+cartões).
+
+**Passos:**
+
+1. `git show 31e9650 -- app.py` e leitura de `show_main_app()` atual.
+2. No E2E: contar botões/cartões/SVG (`CT-F6-E2E-2a`, `2b`), provar a
+   ausência dos blocos removidos (`2c`), checar título/sidebar/Sair (`2d`) e
+   clicar nos 3 cartões (`3a–3c`).
+3. `python3 -m pytest tests/test_home_v3.py -q`.
+
+**Resultado esperado:** exatamente 3 etapas com os rótulos exigidos;
+blocos removidos ausentes; navegação para as 3 páginas; 12 testes verdes.
+
+**Status de execução:** `PASS` — E2E: `botoes_principal=['Importação de
+Dados', 'Análise de Divergências', 'Relatório Final']` com contagem 1 cada;
+`cards=3 svg=3 etapas1a3=True`; blocos removidos com `encontrados=[]`
+(boas-vindas, funcionalidades, Sobre, Status, Nova Análise);
+`titulo=True sidebar_navegacao=True sair=1`; e os 3 cartões levam às páginas
+“Importação de Dados para Conciliação”, “Análise de Correspondências
+Bancárias” e “Relatório de Análise de Correspondências”. `tests/test_home_v3.py`
+→ **12 passed** (escritos contra o home antigo: 7 de 12 falhavam antes da
+mudança, registro do desenvolvedor).
+
+#### CT-F6-08 — Invariantes B × C e PDF Executivo preservados
+
+**Objetivo:** Confirmar que nada da Fase 6 mexeu nos números da conciliação
+nem na estrutura do PDF Executivo.
+
+**Pré-condição:** E2E concluído com importação, análise e download do PDF.
+
+**Passos:**
+
+1. `python3 check_invariantes.py .` (fora da UI).
+2. Conferir as métricas gravadas da tela (`f6_metricas.json`).
+3. `pdfinfo`, `pdftotext -layout` e extração `pypdf` no PDF baixado:
+   páginas, período, invariantes, “meta”, credenciais/caminhos/traceback.
+
+**Resultado esperado:** 18 × 18, 14 matches (11 + 3), 77,8% / 61,1%,
+4 + 4 divergências, diferença líquida 147,55, resíduo 0,00, ponte fecha;
+PDF de 9 páginas com as mesmas figuras.
+
+**Status de execução:** `PASS` — invariantes: `matches_total 14`
+(`11 + 3`), `cobertura_pct 77.8`, `cobertura_efetiva_pct 61.1`,
+`divergencias 4 + 4`, somas `1386.22`/`1538.93`, `diferenca_liquida 147.55`,
+`ponte_residuo "R$ 0,00"`, `ponte_fecha true`. Tela: 18 × 18, `77.8%`,
+`8` divergências, `14` correspondências. PDF: **9 páginas** (60.457 bytes na
+1ª execução e 60.463 na reexecução — diferença só do carimbo de hora; A4,
+WeasyPrint 70.0), período `15/06/2025 a 16/07/2025` ×3, `77,8%` ×4,
+`61,1%` ×4, `147,55` ×8, `R$ 0,00` ×2, **0** “meta” e **0**
+credencial/caminho/`Traceback` no texto.
+
+#### CT-F6-09 — Comparação das 5 telas com os mockups da issue
+
+**Objetivo:** Rasterizar as 5 telas do app real e compará-las visualmente
+lado a lado com os 5 mockups anexados à issue, registrando as diferenças.
+
+**Pré-condição:** E2E concluído (5 telas em `e2e_out/f6/`) e mockups
+baixados dos anexos da issue.
+
+**Passos:**
+
+1. Montar 5 imagens lado a lado (esquerda = mockup, direita = app real,
+   rótulo no topo): `cmp_1_login.png` … `cmp_5_relatorio.png`.
+2. Ler visualmente os 5 pares e anotar as diferenças.
+3. Classificar cada diferença como: (i) divergência real de layout,
+   (ii) funcionalidade extra da app, ou (iii) efeito de captura (corte de
+   viewport / posição de scroll).
+
+**Resultado esperado:** comparação feita para as 5 telas, com as diferenças
+declaradas — nenhuma delas violando os critérios da issue nem quebrando o
+fluxo.
+
+**Status de execução:** `PASS` — as 5 comparações foram produzidas e lidas.
+Divergências registradas:
+
+1. **Login:** mockup = card centralizado com logo “SR”, título “Acesso ao
+   Sistema”, labels `USUÁRIO`/`SENHA` e botão “Entrar” largo; app = título
+   “🔒 Sistema de Conciliação Bancária” + subtítulo, **abas Login/Registrar**,
+   campos “Usuário ou Email”/“Senha” e botão “Entrar” menor à esquerda.
+   Classificação: (i) layout diferente + (ii) a app mantém o registro de
+   usuário (funcionalidade real, ausente no mockup).
+2. **Home:** mockup = header “Empresa QA / Analista: Pessoa QA”, sidebar
+   minimalista (logo, 4 links, “Gerenciar Usuários”/“Sair” no rodapé) e 3
+   cartões **sem** botão; app = sidebar com bloco “Bem-vindo
+   Administrador” + administração no topo e “Navegação Principal”, e 3
+   cartões **com** botão de navegação cada um. Classificação: (ii)
+   administração/navegação da app preservadas de propósito (item 5 exige
+   preservar sidebar e “Sair”); (iii) o header de empresa/analista não
+   aparece na captura por posição de viewport.
+3. **Importação:** mockup = “1. Importação de Dados” com 2 áreas de upload e
+   botão “Iniciar Análise Inteligente”; app (captura já rolando) = chips de
+   arquivo, “Arquivos Bancários”/“Arquivos Contábeis”, **“Seleção para
+   Conciliação”** com dropdown e botão “Processar Conciliação”, alerts de
+   sucesso e as tabelas “primeiras 5”; sidebar com seções extras
+   (Instruções Gerais, Formatos Suportados, Método de Importação, Novo
+   Sistema de Validação). Classificação: (ii) a app tem etapa de seleção de
+   conta e prévia de dados que o mockup não desenha; (iii) os dois lados
+   estão em scroll positions diferentes.
+4. **Análise:** mockup = header com período + “Exportar CSV”, 4 KPI cards
+   (77,8% · 14/18 · 8 · R$ 147,55), abas “Correspondências (11) /
+   Divergências (8) / Por Similaridade (3)” e tabela de status; app
+   (captura no topo) = alerts de carregamento, cards 18/18/Período Analisado,
+   colapsáveis, botão “Executar Análise de Correspondências” e “Resultados da
+   Análise”. Os **mesmos números** (77,8%, 14 correspondências, 8
+   divergências, 147,55) foram confirmados por métricas, invariantes e PDF
+   (CT-F6-08). Classificação: (iii) a captura real mostra a etapa de
+   configuração da análise; a comparação das áreas de resultado depende de
+   rolagem além do corte de 900 px.
+5. **Relatório:** mockup = formulário com “PERÍODO DA ANÁLISE”,
+   “Observações”, botão “Gerar Relatório de Análise” e prévia com
+   77,8% / 14 / 8 + “Baixar PDF Executivo (9 págs)”; app = sidebar
+   “Configurações do Relatório” **sem campo PERÍODO e sem META** (os 3
+   campos exigidos), botões “Gerar Relatório de Análise” e “Baixar
+   Relatório Executivo”, alerta “Relatório Executivo gerado com sucesso!” e
+   pré-visualização. Classificação: a ausência do campo de período é
+   **desejada** (item 2 da issue — o mockup foi produzido antes da decisão);
+   o rótulo do botão de download difere (“Baixar Relatório Executivo” na
+   app vs “Baixar PDF Executivo (9 págs)” no mockup) — divergência (i)
+   registrada, sem impacto funcional (o PDF baixado tem 9 páginas, ver
+   CT-F6-08).
+
+**Conclusão da comparação:** nenhuma divergência impede o fluxo, esconde um
+critério da issue ou altera os números; todas estão registradas acima. As 5
+montagens foram refeitas ao final da rodada a partir das telas da **segunda**
+execução do E2E (CT-F6-03) e são os anexos enviados na issue; as 5 telas
+individuais do app real também foram anexadas.
+
+#### CT-F6-10 — Itens não verificados nesta rodada
+
+**Objetivo:** Listar explicitamente tudo que exigiria outro método, outra
+autorização, tempo real ou está fora do escopo — sem simular resultado.
+
+**Pré-condição:** execução dos casos CT-F6-01..09 concluída.
+
+**Passos:**
+
+1. Listar os pontos não cobertos por esta rodada.
+2. Marcar cada um como `NAO EXECUTADO`, sem presumir resultado.
+
+**Resultado esperado:** lista explícita, sem nenhum `PASS` presumido.
+
+**Status de execução:** `NAO EXECUTADO` — os seguintes pontos **não foram
+verificados** nesta rodada:
+
+- **`CT-AUTH-03` (liberação após 15 min de bloqueio) e `CT-AUTH-05`
+  (expiração de sessão):** casos de tempo real, **identificados antes de
+  executar** e excluídos; exigem confirmação explícita do usuário antes de
+  qualquer espera real.
+- **Comparação pixel a pixel / tolerância numérica entre mockup e app:**
+  feita apenas leitura visual das montagens (limitação (d)); não existe
+  baseline numérica de UI no repositório.
+- **Conteúdo abaixo do fold nas telas longas:** a captura devolve 1440×900
+  (limitação (c)); importação/analise/relatório não foram capturadas com
+  todo o scroll.
+- **`pip-audit`, instalação limpa e Python 3.12/3.13:** não repetidos aqui
+  (etapas do arquiteto/rodadas anteriores); nesta execução só Python 3.10.12.
+- **Publicação (push/PR):** o squad não tem credencial Git; os commits ficam
+  somente nos worktrees locais.
+- **Revisão de segurança/arquitetura além de rodar e conferir:** escopo do
+  arquiteto, não do revisor por execução.
+- **Tokens desta rodada:** o ambiente não expõe a métrica de consumo deste
+  agente; nenhum número é declarado.
+
+### Achados e divergências da rodada (nenhuma correção de produção aplicada)
+
+1. **Nenhum teste falhou e nenhuma verificação reprovou** — suíte 425/1,
+   E2E 25/25, invariantes e PDF dentro do esperado; nada foi devolvido ao
+   desenvolvedor por motivo de falha.
+2. **Os 2 ajustes durante a execução foram no script de E2E, não na app:**
+   f-string com barra invertida (sintaxe Python 3.10) e um check que não
+   considerava o `text-transform: uppercase` da UI — ambos corrigidos antes
+   do resultado final de 25/25.
+3. **Linha da Fase 5d ausente na tabela “Resumo por fase”:** o resumo parava
+   na Fase 5c; esta rodada acrescentou as linhas 5d (8 casos: 7 PASS,
+   1 `NAO EXECUTADO`, contados nesta edição) e 6.
+4. **Divergências de layout com os mockups são sistemáticas, não pontuais:**
+   a app tem sidebar/administração/etapas extras que os mockups não desenham
+   (registradas no CT-F6-09). Se o time quiser convergir o visual ao mockup,
+   isso é trabalho novo de front-end, não um bug desta fase.
+5. **Evidências fora do repositório:** telas, JSONs, PDF do E2E e log ficam
+   em `e2e_out/f6/` (não versionados), como nas fases anteriores.
