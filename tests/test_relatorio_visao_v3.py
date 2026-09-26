@@ -28,6 +28,7 @@ tests/test_gerar_relatorio_auditoria.py, mas dirigindo a página via
 Dados 100% sintéticos.
 """
 import os
+import re
 import sqlite3
 from unittest import mock
 
@@ -201,3 +202,49 @@ def test_apos_gerar_mostra_link_de_download_e_sucesso_sem_iframe(app_autenticado
     assert "download=" in corpo_markdown, "link/botão para baixar o PDF não encontrado"
     assert "<iframe" not in corpo_markdown.lower(), "não pode haver pré-visualização em iframe"
     assert any("sucesso" in s.value.lower() for s in at.success), "mensagem de sucesso não encontrada"
+
+
+def _contraste_wcag(hex_fundo: str, hex_texto: str) -> float:
+    """Razão de contraste WCAG 2.x entre duas cores hex (#RRGGBB)."""
+    def luminancia(hex_cor: str) -> float:
+        hex_cor = hex_cor.lstrip("#")
+        r, g, b = (int(hex_cor[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+        def linearizar(c: float) -> float:
+            return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+        r, g, b = linearizar(r), linearizar(g), linearizar(b)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    l1, l2 = luminancia(hex_fundo), luminancia(hex_texto)
+    mais_claro, mais_escuro = max(l1, l2), min(l1, l2)
+    return (mais_claro + 0.05) / (mais_escuro + 0.05)
+
+
+def test_link_baixar_pdf_tem_contraste_aa_sem_mudar_o_link(app_autenticado_com_analise):
+    """Achado da verificação integrada (CT-F7-VIS-11): o link "Baixar
+    PDF" tinha 2,7796:1 (branco sobre #4CAF50) — abaixo do mínimo AA de
+    4,5:1 para texto normal. O download em si (href com o PDF em
+    base64, atributo `download`) não pode mudar, só as cores."""
+    at = _carregar_pagina(app_autenticado_com_analise)
+
+    with mock.patch("modules.report_executivo.gerar_relatorio_executivo", return_value=b"%PDF-1.4 conteudo sintetico"):
+        botao = next(b for b in at.button if b.key == "btn_gerar_relatorio_analise")
+        botao.click()
+        at.run()
+
+    assert not at.exception, f"geração do relatório levantou exceção: {at.exception}"
+
+    corpo_markdown = " ".join(m.value for m in at.markdown)
+    link_match = re.search(r'<a href="data:application/pdf;base64,[^"]+" download="[^"]+"[^>]*>', corpo_markdown)
+    assert link_match, "link de download do PDF (com o href base64 e o atributo download) não encontrado"
+    link_html = link_match.group(0)
+
+    cor_fundo = re.search(r'background-color:\s*(#[0-9A-Fa-f]{6})', link_html)
+    cor_texto = re.search(r'(?<!background-)color:\s*(#[0-9A-Fa-f]{6}|white)', link_html)
+    assert cor_fundo, "background-color do link de download não encontrado"
+    assert cor_texto, "color do link de download não encontrado"
+
+    hex_texto = "#FFFFFF" if cor_texto.group(1).lower() == "white" else cor_texto.group(1)
+    razao = _contraste_wcag(cor_fundo.group(1), hex_texto)
+    assert razao >= 4.5, f"contraste do link 'Baixar PDF' abaixo do mínimo AA (4.5:1): {razao:.4f}:1"

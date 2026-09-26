@@ -186,6 +186,29 @@ def test_aba_divergencias_mostra_as_2_listas_separadas_com_exportacao_csv(app_au
     assert len(aba_divergencias.download_button) == 2
 
 
+def test_aba_correspondencias_tem_exportacao_csv_propria(app_autenticado_com_dados):
+    """Achado da verificação integrada (item 2, "Exportar CSV por
+    aba"): Divergências e Similaridade já exportavam CSV, mas
+    Correspondências não tinha nenhum botão — a lista de matches
+    exibida na tabela precisa do próprio exportador, sem se misturar
+    com os exportadores de Divergências/Similaridade."""
+    at = _carregar_pagina_com_dados(app_autenticado_com_dados, executar_analise=True)
+
+    aba_correspondencias = next(t for t in at.tabs if "correspondências" in t.label.lower())
+    assert len(aba_correspondencias.download_button) == 1, (
+        "a aba Correspondências precisa do próprio botão de exportação CSV"
+    )
+
+    aba_divergencias = next(t for t in at.tabs if "divergências" in t.label.lower())
+    aba_similaridade = next(t for t in at.tabs if "similaridade" in t.label.lower())
+    # continuam exatamente como antes — o exportador novo não pode se
+    # misturar com os das outras duas listas. Este cenário sintético não
+    # gera nenhuma similaridade de propósito (ver
+    # test_aba_similaridade_e_propria_e_tem_exportacao_csv), então 0 ali.
+    assert len(aba_divergencias.download_button) == 2
+    assert len(aba_similaridade.download_button) == 0
+
+
 def test_aba_similaridade_e_propria_e_tem_exportacao_csv(app_autenticado_com_dados):
     at = _carregar_pagina_com_dados(app_autenticado_com_dados, executar_analise=True)
 

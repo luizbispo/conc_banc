@@ -153,3 +153,41 @@ def test_botao_primario_para_analise_aparece_quando_dados_estao_prontos(app_aute
     primarios = [b for b in at.button if b.label == "Ir para Análise de Dados"]
     assert len(primarios) == 1
     assert primarios[0].proto.type == "primary"
+
+
+def test_cartoes_extrato_e_contabil_tem_a_mesma_estrutura_alinhada(app_autenticado):
+    """Achado do E2E da verificação integrada (CT-F7-VIS): o título
+    "Lançamentos Contábeis" ficava FORA do `st.container(border=True)`
+    da coluna 2, enquanto "Extrato Bancário" ficava DENTRO do da coluna
+    1 — ~61px de diferença visível entre os cartões. Os dois títulos
+    precisam morar dentro do mesmo container com borda que envolve o
+    respectivo uploader, os dois cartões com a mesma estrutura."""
+    at = _carregar_pagina(app_autenticado)
+
+    containers_com_borda = [
+        n for n in at.main
+        if getattr(n, "type", None) == "flex_container" and n.proto.flex_container.border
+    ]
+    assert len(containers_com_borda) == 2, "os 2 cartões de upload devem ser containers com borda"
+
+    container_extrato = next(
+        c for c in containers_com_borda if any(fu.key == "extrato_upload" for fu in c.file_uploader)
+    )
+    container_contabil = next(
+        c for c in containers_com_borda if any(fu.key == "contabil_upload" for fu in c.file_uploader)
+    )
+
+    assert any(sh.value == "🏦 Extrato Bancário" for sh in container_extrato.subheader), (
+        "título 'Extrato Bancário' deve estar dentro do mesmo cartão do uploader"
+    )
+    assert any(sh.value == "📊 Lançamentos Contábeis" for sh in container_contabil.subheader), (
+        "título 'Lançamentos Contábeis' deve estar dentro do mesmo cartão do uploader (achado do E2E)"
+    )
+
+    # nenhum dos dois títulos pode sobrar solto FORA de todos os cartões
+    subheaders_fora = [
+        sh.value for sh in at.subheader
+        if not any(sh in c.subheader for c in containers_com_borda)
+    ]
+    assert "🏦 Extrato Bancário" not in subheaders_fora
+    assert "📊 Lançamentos Contábeis" not in subheaders_fora

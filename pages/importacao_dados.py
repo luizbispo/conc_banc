@@ -1236,8 +1236,8 @@ with col1:
                 st.error(f"❌ Erro ao carregar extrato: {e}")
 
 with col2:
-    st.subheader("📊 Lançamentos Contábeis")
     with st.container(border=True):
+        st.subheader("📊 Lançamentos Contábeis")
         # ATUALIZAR PARA PERMITIR OFX SE A OPÇÃO ESTIVER ATIVA
         tipos_contabil = ['csv', 'xlsx', 'xls', 'pdf']
         if permitir_ofx_contabil:

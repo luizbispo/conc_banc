@@ -521,7 +521,20 @@ def main():
                 
                 matches_df = pd.DataFrame(matches_data)
                 st.dataframe(matches_df, width='stretch')
-                
+
+                # Exportação CSV da própria lista de correspondências
+                # (achado da verificação integrada: Divergências e
+                # Similaridade já exportavam, Correspondências não —
+                # mesmo exportador da fase 5b, sem misturar com as
+                # outras duas listas).
+                csv_correspondencias = gerar_csv_divergencias(matches_df)
+                st.download_button(
+                    label="📥 Exportar Correspondências",
+                    data=csv_correspondencias,
+                    file_name="correspondencias_identificadas.csv",
+                    mime="text/csv",
+                )
+
                 # Detalhes expandíveis - MODIFICADO: MOSTRAR TODAS AS CORRESPONDÊNCIAS
                 with st.expander("🔍 Ver Detalhes Completos de Todas as Correspondências"):
                     st.subheader(f"📋 Detalhes de Todas as {len(resultados_finais['matches'])} Correspondências")

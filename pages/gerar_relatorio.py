@@ -231,7 +231,11 @@ def main():
                 # Criar download link
                 b64_pdf = base64.b64encode(pdf_bytes).decode()
                 nome_arquivo = f"relatorio_{formato_relatorio.lower()}_{conta_analisada}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
-                href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{nome_arquivo}" style="background-color: #4CAF50; color: white; padding: 14px 20px; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; font-size: 16px;">📥 Baixar PDF</a>'
+                # Navy (#002D72) + branco: mesma cor já usada nos botões
+                # primários do tema (contraste ~13:1) — o verde/branco
+                # anterior (#4CAF50) media só 2,78:1, abaixo do mínimo AA
+                # de 4,5:1 (achado da verificação integrada, CT-F7-VIS-11).
+                href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{nome_arquivo}" style="background-color: #002D72; color: #FFFFFF; padding: 14px 20px; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; font-size: 16px;">📥 Baixar PDF</a>'
 
                 st.markdown(href, unsafe_allow_html=True)
                 st.success("✅ Relatório gerado com sucesso!")
