@@ -269,6 +269,50 @@ python3 -m pytest tests/test_importacao_limites.py::test_pdf_valido_com_texto_ex
 
 ---
 
+## 7b. Adendo — limitações da revisão de segurança final (técnico e leigo)
+
+Revisão de segurança final (somente leitura, sobre `abb3aa6` + `77bc707`,
+sem dados reais, sem CT-AUTH-03/05, sem alterar código/documentação;
+riscos aceitos `admin/admin123` e chave JWT sem variável preservados):
+**sem bloqueio para mover a issue a `in_review`**, condicionado a manter
+explícitas as limitações abaixo. São recomendações/limitações de cobertura,
+**não** falhas impeditivas da entrega atual:
+
+1. **Limites CSV sem upload de navegador:** a mensagem única no nível de
+   página foi comprovada no fluxo de upload único para OFX (R1/E2E); os
+   limites de CSV (linhas, colunas, campo) foram cobertos no nível de
+   `processar_arquivo` (pytest), mas nenhum CSV acima do limite subiu ao
+   navegador. Limitação de cobertura — não é evidência de stack trace ou
+   vazamento.
+2. **Modo de validação por nome de arquivo:** se todos os arquivos forem
+   rejeitados por limite, o bloco final ainda pode exibir a mensagem
+   genérica de estado da conciliação ("Não foi possível processar os
+   arquivos para conciliação"). É mensagem de estado, não stack trace nem
+   conteúdo do upload — mas esse modo não está comprovado como "uma única
+   mensagem" em todos os cenários.
+3. **`audit.log_file_upload` e nome de arquivo:** o `file_name` é saneado
+   como basename (controles/segredos redigidos), mas o `error_message`
+   recebe a mensagem de validação com o nome do arquivo — um nome
+   controlado pelo usuário pode permanecer refletido nesse campo. Não há
+   conteúdo do PDF/OFX/CSV nem stack trace; recomendação para trabalho
+   posterior: normalizar também esse campo se o requisito for não persistir
+   nenhum nome controlado pelo usuário.
+4. **Exceção de PDF com `str(e)`, sem fuzzing:** a captura de exceção de
+   PDF exibe `str(e)` ao usuário; a evidência executada não mostra stack
+   trace, mas não houve teste de fuzzing para provar que toda mensagem de
+   exceção do `pypdf` é livre de detalhes internos. Não bloqueia o aceite
+   da rejeição por limite.
+
+*Leigo: o inspetor de segurança liberou a entrega, mas deixou quatro
+ressalvas honestas para o futuro — (1) os limites de planilha foram testados
+na bancada, não no navegador; (2) num modo alternativo de envio pode sobrar
+um aviso genérico no fim; (3) o nome do arquivo pode ficar registrado no
+caderno de auditoria (só o nome, nunca o conteúdo); (4) a mensagem de erro de
+PDF mostra o texto do erro sem prova completa de que nunca vaza detalhe
+interno. Nada disso trava esta entrega.*
+
+---
+
 ## 8. Tokens por agente e por rodada
 
 O runtime não expõe contador de tokens aos agentes; **nenhum número é
