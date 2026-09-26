@@ -134,9 +134,6 @@ def main():
                 st.rerun()
         st.stop()
 
-    # Mostrar estatísticas iniciais
-    st.success("✅ Dados carregados com sucesso! Configure a análise abaixo.")
-
     extrato_df = st.session_state['extrato_df']
     contabil_df = st.session_state['contabil_df']
 
@@ -161,8 +158,6 @@ def main():
             st.write(f"**Lançamentos contábeis faltando:** {', '.join(colunas_faltantes_contabil)}")
             st.write(f"Colunas disponíveis nos lançamentos: {', '.join(colunas_contabil)}")
         st.stop()
-    else:
-        st.success("✅ Colunas necessárias encontradas!")
 
     #  Preparar dados - garantir que datas e valores estão no formato correto
     try:
@@ -205,9 +200,7 @@ def main():
             extrato_df['tipo_operacao'] = extrato_df['valor'].apply(
                 lambda x: 'Débito' if x < 0 else 'Crédito'
             )
-            
-            st.info("🔧 Valores processados para matching: usando valor absoluto para comparação")
-            
+
             return extrato_df, contabil_df
 
         # Chamar a função de processamento de valores
@@ -217,45 +210,49 @@ def main():
         st.session_state.extrato_df = extrato_df
         st.session_state.contabil_df = contabil_df
 
-        st.success("✅ Dados preparados com sucesso para análise!")
-
     except Exception as e:
         st.error(f"❌ Erro ao preparar dados: {e}")
         st.stop()
 
-    # Mostrar estatísticas
-    col_stat1, col_stat2, col_stat3 = st.columns(3)
-    with col_stat1:
-        st.metric("Transações Bancárias", len(extrato_df))
-    with col_stat2:
-        st.metric("Lançamentos Contábeis", len(contabil_df))
-    with col_stat3:
-        try:
-            if 'data' in extrato_df.columns and not extrato_df['data'].isna().all():
-                data_min = extrato_df['data'].min()
-                data_max = extrato_df['data'].max()
-                if pd.notna(data_min) and pd.notna(data_max):
-                    periodo_extrato = f"{data_min.strftime('%d/%m')} a {data_max.strftime('%d/%m/%Y')}"
-                else:
-                    periodo_extrato = "Período não disponível"
+    # Estatísticas, informações e prévia dos dados carregados: não são
+    # essenciais na visão padrão (título + botão "Executar Análise"),
+    # então moraram para dentro de um único expander fechado "Detalhes"
+    # (regra geral da fase 7 / XCRE-55 para as telas de análise e
+    # relatório) — nada foi removido, só relocado.
+    try:
+        if 'data' in extrato_df.columns and not extrato_df['data'].isna().all():
+            data_min = extrato_df['data'].min()
+            data_max = extrato_df['data'].max()
+            if pd.notna(data_min) and pd.notna(data_max):
+                periodo_extrato = f"{data_min.strftime('%d/%m')} a {data_max.strftime('%d/%m/%Y')}"
             else:
                 periodo_extrato = "Período não disponível"
-        except Exception as e:
+        else:
             periodo_extrato = "Período não disponível"
-        
-        st.metric("Período Analisado", periodo_extrato)
+    except Exception as e:
+        periodo_extrato = "Período não disponível"
 
-    # Mostrar informações sobre os dados
-    with st.expander("Informações dos Dados"):
+    with st.expander("Detalhes", expanded=False):
+        st.markdown("#### Estatísticas")
+        col_stat1, col_stat2, col_stat3 = st.columns(3)
+        with col_stat1:
+            st.metric("Transações Bancárias", len(extrato_df))
+        with col_stat2:
+            st.metric("Lançamentos Contábeis", len(contabil_df))
+        with col_stat3:
+            st.metric("Período Analisado", periodo_extrato)
+
+        st.divider()
+        st.markdown("#### Informações dos Dados")
         col_info1, col_info2 = st.columns(2)
-        
+
         with col_info1:
             st.write("**🏦 Extrato Bancário**")
             st.write(f"- Total de transações: {len(extrato_df)}")
             st.write(f"- Período: {periodo_extrato}")
             st.write(f"- Valores negativos: {len(extrato_df[extrato_df['valor_original'] < 0])}")
             st.write(f"- Valores positivos: {len(extrato_df[extrato_df['valor_original'] > 0])}")
-            
+
         with col_info2:
             st.write("**📊 Lançamentos Contábeis**")
             st.write(f"- Total de lançamentos: {len(contabil_df)}")
@@ -270,15 +267,15 @@ def main():
                 periodo_contabil = "Período não disponível"
             st.write(f"- Período: {periodo_contabil}")
 
-    # Mostrar prévia dos dados
-    with st.expander("Prévia dos Dados Carregados"):
+        st.divider()
+        st.markdown("#### Prévia dos Dados Carregados")
         col_previa1, col_previa2 = st.columns(2)
-        
+
         with col_previa1:
             st.write("**🏦 Extrato Bancário (primeiras 5 linhas):**")
             display_cols = ['id', 'data', 'valor_original', 'descricao'] if 'descricao' in extrato_df.columns else ['id', 'data', 'valor_original']
             st.dataframe(extrato_df[display_cols].head(), width='stretch')
-        
+
         with col_previa2:
             st.write("**📊 Lançamentos Contábeis (primeiras 5 linhas):**")
             display_cols = ['id', 'data', 'valor_original', 'descricao'] if 'descricao' in contabil_df.columns else ['id', 'data', 'valor_original']
@@ -424,31 +421,39 @@ def main():
         extrato_filtrado = st.session_state.get('extrato_filtrado', extrato_df)
         contabil_filtrado = st.session_state.get('contabil_filtrado', contabil_df)
         
-        # Métricas principais
+        # Métricas principais: os 4 indicadores da visão padrão (fase 7,
+        # item 2) — cobertura, correspondências (fração), itens em
+        # aberto e diferença líquida entre os saldos. Nenhuma conta de
+        # matching muda; só a apresentação (antes eram "Transações
+        # Analisadas" e "Lançamentos Analisados" em métricas separadas).
+        total_extrato = len(extrato_filtrado)
+        total_contabil = len(contabil_filtrado)
+        match_extrato = len(resultados_finais['matches'])
+
+        # CORREÇÃO: Contar itens individuais, não tipos de divergência
+        total_itens_divergentes = 0
+        for excecao in resultados_finais.get('excecoes', []):
+            total_itens_divergentes += len(excecao.get('ids_envolvidos', []))
+
+        diferenca_liquida = round(
+            contabil_filtrado['valor'].sum() - extrato_filtrado['valor'].sum(), 2
+        ) if total_extrato or total_contabil else 0.0
+
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            total_extrato = len(extrato_filtrado)
-            match_extrato = len(resultados_finais['matches'])
-            st.metric("Transações Analisadas", total_extrato, f"{match_extrato} com correspondência")
-
-        with col2:
-            total_contabil = len(contabil_filtrado)
-            match_contabil = sum(len(match['ids_contabil']) for match in resultados_finais['matches'])
-            st.metric("Lançamentos Analisados", total_contabil, f"{match_contabil} com correspondência")
-
-        with col3:
             taxa_cobertura = (match_extrato / total_extrato * 100) if total_extrato > 0 else 0
             st.metric("Cobertura de Análise", f"{taxa_cobertura:.1f}%")
 
+        with col2:
+            st.metric("Correspondências", f"{match_extrato}/{total_extrato}")
+
+        with col3:
+            st.metric("Itens em Aberto", total_itens_divergentes)
+
         with col4:
-            # CORREÇÃO: Contar itens individuais, não tipos de divergência
-            total_itens_divergentes = 0
-            for excecao in resultados_finais.get('excecoes', []):
-                total_itens_divergentes += len(excecao.get('ids_envolvidos', []))
-            
-            st.metric("Itens em Divergência", total_itens_divergentes)
-                
+            st.metric("Diferença Líquida", f"R$ {diferenca_liquida:,.2f}")
+
         # --- CSS de Estilização das Abas ---
         st.markdown("""
         <style>
@@ -471,24 +476,29 @@ def main():
             transition: background-color 0.3s, color 0.3s; /* Transição suave */
         }
 
-        /* 3. Estilo para a ABA ATIVA (selecionada) */
+        /* 3. Estilo para a ABA ATIVA (selecionada): texto navy com
+           sublinhado navy (mesmo navy do tema, #002D72) — antes tinha
+           fundo azul com sublinhado vermelho, sem relação com o tema. */
         .stTabs [aria-selected="true"] {
-            background-color: #0078D4; /* Cor de fundo da aba selecionada (azul do Windows) */
-            color: #FFFFFF; /* Cor do texto da aba selecionada (branco) */
+            background-color: #F0F2F6;
+            color: #002D72;
             font-weight: bold;
-            border-bottom: 4px solid #FF4B4B; /* Adiciona uma linha inferior colorida */
+            border-bottom: 4px solid #002D72;
         }
         </style>
         """, unsafe_allow_html=True)
         # --- Fim do CSS ---
 
-        # Abas de detalhamento
-        aba1, aba2, aba3, aba4, aba5 = st.tabs([
-            "🔍 Correspondências", 
-            "⚠️ Divergências", 
-            "📊 Estatísticas", 
-            "📈 Dashboard Interativo",
-            "🔧 Detalhes Técnicos"
+        # Abas de detalhamento: as 3 listas que a página já tem
+        # (correspondências, divergências e similaridade), sem misturar
+        # itens entre elas. Estatísticas, Dashboard Interativo e
+        # Detalhes Técnicos deixaram de ser abas de nível superior — vão
+        # para dentro do expander fechado "Detalhes" logo abaixo (não
+        # essenciais na visão padrão, mas nada foi removido).
+        aba1, aba2, aba3 = st.tabs([
+            "🔍 Correspondências",
+            "⚠️ Divergências",
+            "🔁 Similaridade",
         ])
 
         with aba1:
@@ -595,260 +605,269 @@ def main():
             else:
                 st.info("ℹ️ Nenhuma correspondência identificada com os critérios atuais.")        
         
+        # Tabelas de divergência/similaridade: mesmo cálculo de antes
+        # (gerar_tabelas_divergencias_melhoradas), só computado uma vez
+        # aqui fora para alimentar as abas "Divergências" e
+        # "Similaridade" sem misturar as 3 listas entre si.
+        tabelas_divergencias = (
+            gerar_tabelas_divergencias_melhoradas(resultados_finais, extrato_filtrado, contabil_filtrado)
+            if resultados_finais.get('excecoes') else None
+        )
+
         with aba2:
             st.subheader("🔍 Análise Detalhada das Divergências")
-            
-            if resultados_finais.get('excecoes'):
-                # Gerar tabelas melhoradas
-                tabelas_divergencias = gerar_tabelas_divergencias_melhoradas(
-                    resultados_finais, extrato_filtrado, contabil_filtrado
-                )
-                
-                # Abas para cada tipo de divergência
-                tab1, tab2, tab3 = st.tabs([
-                    "🏦 Bancário sem Contábil", 
-                    "📊 Contábil sem Bancário", 
-                    "🔍 Similaridades"
-                ])
-                
-                with tab1:
-                    st.markdown("**Valores Presentes no Extrato mas Não na Contabilidade**")
-                    if not tabelas_divergencias['bancario_sem_contabil'].empty:
-                        st.dataframe(tabelas_divergencias['bancario_sem_contabil'], width='stretch')
-                        
-                        # Botão de exportação
-                        csv_bancario = gerar_csv_divergencias(tabelas_divergencias['bancario_sem_contabil'])
-                        st.download_button(
-                            label="📥 Exportar Divergências Bancárias",
-                            data=csv_bancario,
-                            file_name="divergencias_bancario_sem_contabil.csv",
-                            mime="text/csv"
-                        )
-                    else:
-                        st.success("✅ Nenhuma divergência")
-                
-                with tab2:
-                    st.markdown("**Lançamentos Contábeis sem Movimentação Bancária**")
-                    if not tabelas_divergencias['contabil_sem_bancario'].empty:
-                        st.dataframe(tabelas_divergencias['contabil_sem_bancario'], width='stretch')
-                        
-                        csv_contabil = gerar_csv_divergencias(tabelas_divergencias['contabil_sem_bancario'])
-                        st.download_button(
-                            label="📥 Exportar Divergências Contábeis",
-                            data=csv_contabil,
-                            file_name="divergencias_contabil_sem_bancario.csv",
-                            mime="text/csv"
-                        )
-                    else:
-                        st.success("✅ Nenhuma divergência")
-                
-                with tab3:
-                    st.markdown("**Possíveis Correspondências por Similaridade**")
-                    if not tabelas_divergencias['possiveis_similaridades'].empty:
-                        st.dataframe(tabelas_divergencias['possiveis_similaridades'], width='stretch')
-                        
-                        csv_similaridades = gerar_csv_divergencias(tabelas_divergencias['possiveis_similaridades'])
-                        st.download_button(
-                            label="📥 Exportar Similaridades",
-                            data=csv_similaridades,
-                            file_name="possiveis_correspondencias_similaridade.csv",
-                            mime="text/csv"
-                        )
-                    else:
-                        st.info("ℹ️ Nenhuma similaridade identificada")
-            
+
+            if tabelas_divergencias is not None:
+                st.markdown("**Valores Presentes no Extrato mas Não na Contabilidade**")
+                if not tabelas_divergencias['bancario_sem_contabil'].empty:
+                    st.dataframe(tabelas_divergencias['bancario_sem_contabil'], width='stretch')
+
+                    # Botão de exportação
+                    csv_bancario = gerar_csv_divergencias(tabelas_divergencias['bancario_sem_contabil'])
+                    st.download_button(
+                        label="📥 Exportar Divergências Bancárias",
+                        data=csv_bancario,
+                        file_name="divergencias_bancario_sem_contabil.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.success("✅ Nenhuma divergência")
+
+                st.divider()
+
+                st.markdown("**Lançamentos Contábeis sem Movimentação Bancária**")
+                if not tabelas_divergencias['contabil_sem_bancario'].empty:
+                    st.dataframe(tabelas_divergencias['contabil_sem_bancario'], width='stretch')
+
+                    csv_contabil = gerar_csv_divergencias(tabelas_divergencias['contabil_sem_bancario'])
+                    st.download_button(
+                        label="📥 Exportar Divergências Contábeis",
+                        data=csv_contabil,
+                        file_name="divergencias_contabil_sem_bancario.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.success("✅ Nenhuma divergência")
+
             else:
                 st.success("✅ Nenhuma divergência crítica identificada")
-        
-        
-        with aba3:
-            st.subheader("Estatísticas Detalhadas")
-            
-            col_stat1, col_stat2 = st.columns(2)
-            
-            with col_stat1:
-                st.markdown("**📈 Distribuição por Tipo de Correspondência**")
-                tipos_data = {
-                    'Tipo': ['1:1', '1:N', 'N:1'],
-                    'Quantidade': [
-                        len([m for m in resultados_finais['matches'] if m['tipo_match'] == '1:1']),
-                        len([m for m in resultados_finais['matches'] if m['tipo_match'] == '1:N']),
-                        len([m for m in resultados_finais['matches'] if m['tipo_match'] == 'N:1'])
-                    ]
-                }
-                st.bar_chart(pd.DataFrame(tipos_data).set_index('Tipo'))
-            
-            with col_stat2:
-                st.markdown("**🔍 Efetividade por Camada de Análise**")
-                camadas_data = {
-                    'Camada': ['Exata', 'Similaridade', 'Avançada'],
-                    'Correspondências': [
-                        len([m for m in resultados_finais['matches'] if m['camada'] == 'exata']),
-                        len([m for m in resultados_finais['matches'] if m['camada'] == 'heuristica']),
-                        len([m for m in resultados_finais['matches'] if m['camada'] == 'ia'])
-                    ]
-                }
-                st.bar_chart(pd.DataFrame(camadas_data).set_index('Camada'))
-            
-            # NOVA SEÇÃO: ESTATÍSTICAS DA IA - COM VERIFICAÇÃO DE EXISTÊNCIA
-            if 'estatisticas_ia' in resultados_finais and resultados_finais['estatisticas_ia']:
-                st.markdown("**🤖 Estatísticas da IA Avançada**")
-                stats_ia = resultados_finais['estatisticas_ia']
-                
-                # Verificar se as chaves existem antes de acessar
-                matches_semanticos = stats_ia.get('matches_semanticos', 0)
-                matches_temporais = stats_ia.get('matches_temporais', 0)
-                matches_agrupados = stats_ia.get('matches_agrupados', 0)
-                matches_entidades = stats_ia.get('matches_entidades', 0)
-                
-                # Só mostrar se houver dados da IA
-                if any([matches_semanticos, matches_temporais, matches_agrupados, matches_entidades]):
-                    col_ia1, col_ia2, col_ia3, col_ia4 = st.columns(4)
-                    
-                    with col_ia1:
-                        st.metric("Matches Semânticos", matches_semanticos)
-                    
-                    with col_ia2:
-                        st.metric("Matches Temporais", matches_temporais)
-                    
-                    with col_ia3:
-                        st.metric("Matches Agrupados", matches_agrupados)
-                    
-                    with col_ia4:
-                        st.metric("Matches por Entidades", matches_entidades)
-        
-        with aba4:
-            st.header("📈 Dashboard Interativo de Análise")
-            
-            if 'resultados_analise' in st.session_state:
-                try:
-                    dashboard = get_dashboard()
-                    
-                    # Controles do dashboard
-                    col_controls1, col_controls2, col_controls3 = st.columns(3)
-                    
-                    with col_controls1:
-                        show_overview = st.checkbox("Visão Geral", value=True, key="overview")
-                    with col_controls2:
-                        show_timeline = st.checkbox("Análise Temporal", value=True, key="timeline")
-                    with col_controls3:
-                        show_distribution = st.checkbox("Distribuição de Valores", value=True, key="distribution")
-                    
-                    # ADICIONAR: Verificação de dados antes de criar visualizações
-                    extrato_filtrado = st.session_state.get('extrato_filtrado')
-                    contabil_filtrado = st.session_state.get('contabil_filtrado')
-                    
-                    # ADICIONAR DEBUG
-                    with st.sidebar.expander("🔍 Debug Similaridades", expanded=False):
-                        debug_matching_similaridades(
-                            st.session_state.extrato_filtrado,
-                            st.session_state.contabil_filtrado, 
-                            st.session_state.resultados_analise
-                        )
 
-                    if extrato_filtrado is not None and len(extrato_filtrado) > 0:
-                        
-                        # Visão Geral
-                        if show_overview:
-                            st.subheader("📊 Visão Geral da Conciliação")
-                            overview_fig = dashboard.create_reconciliation_overview(
-                                st.session_state.resultados_analise,
-                                extrato_filtrado,
-                                contabil_filtrado
-                            )
-                            if overview_fig:
-                                st.plotly_chart(overview_fig, use_container_width=True)
-                            else:
-                                st.warning("Não foi possível gerar a visão geral")
-                        
-                        # Análise Temporal
-                        if show_timeline and 'data' in extrato_filtrado.columns:
-                            st.subheader("📈 Análise Temporal")
-                            timeline_fig = dashboard.create_timeline_analysis(
-                                extrato_filtrado,
-                                contabil_filtrado
-                            )
-                            if timeline_fig:
-                                st.plotly_chart(timeline_fig, use_container_width=True)
-                            else:
-                                st.warning("Não foi possível gerar a análise temporal")
-                        
-                        # Distribuição de Valores
-                        if show_distribution:
-                            st.subheader("📦 Distribuição de Valores")
-                            distribution_fig = dashboard.create_value_distribution(
-                                extrato_filtrado,
-                                contabil_filtrado
-                            )
-                            if distribution_fig:
-                                st.plotly_chart(distribution_fig, use_container_width=True)
-                            else:
-                                st.warning("Não foi possível gerar a distribuição de valores")
-                        
-                        # Análise de Confiança (apenas se houver matches)
-                        if st.session_state.resultados_analise.get('matches'):
-                            st.subheader("🎯 Análise de Confiança")
-                            confidence_fig = dashboard.create_confidence_analysis(st.session_state.resultados_analise)
-                            if confidence_fig:
-                                st.plotly_chart(confidence_fig, use_container_width=True)
-                        
-                        # Métricas Comparativas
-                        st.subheader("📋 Métricas Comparativas")
-                        metrics_fig = dashboard.create_comparison_metrics(
-                            extrato_filtrado,
-                            contabil_filtrado
-                        )
-                        if metrics_fig:
-                            st.plotly_chart(metrics_fig, use_container_width=True)
-                        
-                        # Estatísticas Rápidas
-                        col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-                        
-                        with col_stat1:
-                            total_extrato = len(st.session_state.extrato_filtrado)
-                            st.metric("Transações Bancárias", total_extrato)
-                        
-                        with col_stat2:
-                            total_contabil = len(st.session_state.contabil_filtrado)
-                            st.metric("Lançamentos Contábeis", total_contabil)
-                        
-                        with col_stat3:
-                            total_matches = len(st.session_state.resultados_analise.get('matches', []))
-                            st.metric("Correspondências", total_matches)
-                        
-                        with col_stat4:
-                            taxa_conciliação = (total_matches / total_extrato * 100) if total_extrato > 0 else 0
-                            st.metric("Taxa de Conciliação", f"{taxa_conciliação:.1f}%")
-                    
-                    else:
-                        st.warning("📊 Dados insuficientes para gerar o dashboard. Verifique se há dados carregados e processados.")
-                        
-                except Exception as e:
-                    st.error(f"❌ Erro ao carregar dashboard: {str(e)}")
-                    st.info("💡 Tente executar a análise novamente ou verifique os dados carregados")
-            
+        with aba3:
+            st.subheader("🔁 Possíveis Correspondências por Similaridade")
+
+            if tabelas_divergencias is not None and not tabelas_divergencias['possiveis_similaridades'].empty:
+                st.dataframe(tabelas_divergencias['possiveis_similaridades'], width='stretch')
+
+                csv_similaridades = gerar_csv_divergencias(tabelas_divergencias['possiveis_similaridades'])
+                st.download_button(
+                    label="📥 Exportar Similaridades",
+                    data=csv_similaridades,
+                    file_name="possiveis_correspondencias_similaridade.csv",
+                    mime="text/csv"
+                )
             else:
-                st.info("💡 Execute a análise de correspondências primeiro para visualizar o dashboard.")
-                if st.button("🔍 Executar Análise", key="btn_analise_dashboard"):
-                    st.rerun()
-        
-        
-        with aba5:
-            st.subheader("Detalhes Técnicos da Análise")
+                st.info("ℹ️ Nenhuma similaridade identificada")
+
+        # Estatísticas Detalhadas, Dashboard Interativo e Detalhes
+        # Técnicos deixaram de ser abas de nível superior (fase 7, item
+        # 2): não são essenciais na visão padrão, então moraram para
+        # dentro deste único expander fechado "Detalhes" — mesmo
+        # conteúdo de antes, só relocado.
+        with st.expander("Detalhes", expanded=False):
+            _aba_detalhes_estatisticas, aba4, aba5 = st.tabs([
+                "📊 Estatísticas",
+                "📈 Dashboard Interativo",
+                "🔧 Detalhes Técnicos",
+            ])
+
+            with _aba_detalhes_estatisticas:
+                st.subheader("Estatísticas Detalhadas")
+                
+                col_stat1, col_stat2 = st.columns(2)
+                
+                with col_stat1:
+                    st.markdown("**📈 Distribuição por Tipo de Correspondência**")
+                    tipos_data = {
+                        'Tipo': ['1:1', '1:N', 'N:1'],
+                        'Quantidade': [
+                            len([m for m in resultados_finais['matches'] if m['tipo_match'] == '1:1']),
+                            len([m for m in resultados_finais['matches'] if m['tipo_match'] == '1:N']),
+                            len([m for m in resultados_finais['matches'] if m['tipo_match'] == 'N:1'])
+                        ]
+                    }
+                    st.bar_chart(pd.DataFrame(tipos_data).set_index('Tipo'))
+                
+                with col_stat2:
+                    st.markdown("**🔍 Efetividade por Camada de Análise**")
+                    camadas_data = {
+                        'Camada': ['Exata', 'Similaridade', 'Avançada'],
+                        'Correspondências': [
+                            len([m for m in resultados_finais['matches'] if m['camada'] == 'exata']),
+                            len([m for m in resultados_finais['matches'] if m['camada'] == 'heuristica']),
+                            len([m for m in resultados_finais['matches'] if m['camada'] == 'ia'])
+                        ]
+                    }
+                    st.bar_chart(pd.DataFrame(camadas_data).set_index('Camada'))
+                
+                # NOVA SEÇÃO: ESTATÍSTICAS DA IA - COM VERIFICAÇÃO DE EXISTÊNCIA
+                if 'estatisticas_ia' in resultados_finais and resultados_finais['estatisticas_ia']:
+                    st.markdown("**🤖 Estatísticas da IA Avançada**")
+                    stats_ia = resultados_finais['estatisticas_ia']
+                    
+                    # Verificar se as chaves existem antes de acessar
+                    matches_semanticos = stats_ia.get('matches_semanticos', 0)
+                    matches_temporais = stats_ia.get('matches_temporais', 0)
+                    matches_agrupados = stats_ia.get('matches_agrupados', 0)
+                    matches_entidades = stats_ia.get('matches_entidades', 0)
+                    
+                    # Só mostrar se houver dados da IA
+                    if any([matches_semanticos, matches_temporais, matches_agrupados, matches_entidades]):
+                        col_ia1, col_ia2, col_ia3, col_ia4 = st.columns(4)
+                        
+                        with col_ia1:
+                            st.metric("Matches Semânticos", matches_semanticos)
+                        
+                        with col_ia2:
+                            st.metric("Matches Temporais", matches_temporais)
+                        
+                        with col_ia3:
+                            st.metric("Matches Agrupados", matches_agrupados)
+                        
+                        with col_ia4:
+                            st.metric("Matches por Entidades", matches_entidades)
             
-            st.json({
-                "configuracoes_aplicadas": {
-                    "tolerancia_percentual": f"{tolerancia_percentual}%",
-                    "tolerancia_data_dias": 2,  # FIXO
-                    "similaridade_minima_percentual": 70  # FIXO
-                },
-                "estatisticas_processamento": {
-                    "transacoes_analisadas": len(extrato_filtrado),
-                    "lancamentos_analisados": len(contabil_filtrado),
-                    "correspondencias_identificadas": len(resultados_finais['matches']),
-                    "divergencias_identificadas": len(resultados_finais['excecoes'])
-                }
-            })
+            with aba4:
+                st.header("📈 Dashboard Interativo de Análise")
+                
+                if 'resultados_analise' in st.session_state:
+                    try:
+                        dashboard = get_dashboard()
+                        
+                        # Controles do dashboard
+                        col_controls1, col_controls2, col_controls3 = st.columns(3)
+                        
+                        with col_controls1:
+                            show_overview = st.checkbox("Visão Geral", value=True, key="overview")
+                        with col_controls2:
+                            show_timeline = st.checkbox("Análise Temporal", value=True, key="timeline")
+                        with col_controls3:
+                            show_distribution = st.checkbox("Distribuição de Valores", value=True, key="distribution")
+                        
+                        # ADICIONAR: Verificação de dados antes de criar visualizações
+                        extrato_filtrado = st.session_state.get('extrato_filtrado')
+                        contabil_filtrado = st.session_state.get('contabil_filtrado')
+                        
+                        # ADICIONAR DEBUG
+                        with st.sidebar.expander("🔍 Debug Similaridades", expanded=False):
+                            debug_matching_similaridades(
+                                st.session_state.extrato_filtrado,
+                                st.session_state.contabil_filtrado, 
+                                st.session_state.resultados_analise
+                            )
+    
+                        if extrato_filtrado is not None and len(extrato_filtrado) > 0:
+                            
+                            # Visão Geral
+                            if show_overview:
+                                st.subheader("📊 Visão Geral da Conciliação")
+                                overview_fig = dashboard.create_reconciliation_overview(
+                                    st.session_state.resultados_analise,
+                                    extrato_filtrado,
+                                    contabil_filtrado
+                                )
+                                if overview_fig:
+                                    st.plotly_chart(overview_fig, use_container_width=True)
+                                else:
+                                    st.warning("Não foi possível gerar a visão geral")
+                            
+                            # Análise Temporal
+                            if show_timeline and 'data' in extrato_filtrado.columns:
+                                st.subheader("📈 Análise Temporal")
+                                timeline_fig = dashboard.create_timeline_analysis(
+                                    extrato_filtrado,
+                                    contabil_filtrado
+                                )
+                                if timeline_fig:
+                                    st.plotly_chart(timeline_fig, use_container_width=True)
+                                else:
+                                    st.warning("Não foi possível gerar a análise temporal")
+                            
+                            # Distribuição de Valores
+                            if show_distribution:
+                                st.subheader("📦 Distribuição de Valores")
+                                distribution_fig = dashboard.create_value_distribution(
+                                    extrato_filtrado,
+                                    contabil_filtrado
+                                )
+                                if distribution_fig:
+                                    st.plotly_chart(distribution_fig, use_container_width=True)
+                                else:
+                                    st.warning("Não foi possível gerar a distribuição de valores")
+                            
+                            # Análise de Confiança (apenas se houver matches)
+                            if st.session_state.resultados_analise.get('matches'):
+                                st.subheader("🎯 Análise de Confiança")
+                                confidence_fig = dashboard.create_confidence_analysis(st.session_state.resultados_analise)
+                                if confidence_fig:
+                                    st.plotly_chart(confidence_fig, use_container_width=True)
+                            
+                            # Métricas Comparativas
+                            st.subheader("📋 Métricas Comparativas")
+                            metrics_fig = dashboard.create_comparison_metrics(
+                                extrato_filtrado,
+                                contabil_filtrado
+                            )
+                            if metrics_fig:
+                                st.plotly_chart(metrics_fig, use_container_width=True)
+                            
+                            # Estatísticas Rápidas
+                            col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+                            
+                            with col_stat1:
+                                total_extrato = len(st.session_state.extrato_filtrado)
+                                st.metric("Transações Bancárias", total_extrato)
+                            
+                            with col_stat2:
+                                total_contabil = len(st.session_state.contabil_filtrado)
+                                st.metric("Lançamentos Contábeis", total_contabil)
+                            
+                            with col_stat3:
+                                total_matches = len(st.session_state.resultados_analise.get('matches', []))
+                                st.metric("Total de Correspondências", total_matches)
+                            
+                            with col_stat4:
+                                taxa_conciliação = (total_matches / total_extrato * 100) if total_extrato > 0 else 0
+                                st.metric("Taxa de Conciliação", f"{taxa_conciliação:.1f}%")
+                        
+                        else:
+                            st.warning("📊 Dados insuficientes para gerar o dashboard. Verifique se há dados carregados e processados.")
+                            
+                    except Exception as e:
+                        st.error(f"❌ Erro ao carregar dashboard: {str(e)}")
+                        st.info("💡 Tente executar a análise novamente ou verifique os dados carregados")
+                
+                else:
+                    st.info("💡 Execute a análise de correspondências primeiro para visualizar o dashboard.")
+                    if st.button("🔍 Executar Análise", key="btn_analise_dashboard"):
+                        st.rerun()
+            
+            
+            with aba5:
+                st.subheader("Detalhes Técnicos da Análise")
+                
+                st.json({
+                    "configuracoes_aplicadas": {
+                        "tolerancia_percentual": f"{tolerancia_percentual}%",
+                        "tolerancia_data_dias": 2,  # FIXO
+                        "similaridade_minima_percentual": 70  # FIXO
+                    },
+                    "estatisticas_processamento": {
+                        "transacoes_analisadas": len(extrato_filtrado),
+                        "lancamentos_analisados": len(contabil_filtrado),
+                        "correspondencias_identificadas": len(resultados_finais['matches']),
+                        "divergencias_identificadas": len(resultados_finais['excecoes'])
+                    }
+                })
 
         # Navegação e Ações 
         st.markdown("---")
