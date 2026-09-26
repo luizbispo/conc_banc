@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import tempfile
-import os
 import time
 import base64
 import modules.report_executivo as report_executivo
@@ -543,7 +542,11 @@ def main():
                     # PASSAR A CONTA PARA A FUNÇÃO DE GERAR RELATÓRIO
                     # Relatório Executivo (fase 3, XCRE-43): template HTML +
                     # WeasyPrint, narrativa por regras determinísticas.
-                    pdf_path = report_executivo.gerar_relatorio_executivo(
+                    # Devolve os BYTES do PDF diretamente (revisão de
+                    # segurança XCRE-51/SEC-R-02): o gerador já escreve o
+                    # PDF num diretório privado por execução e o apaga em
+                    # `finally`, então nenhum caminho local chega até aqui.
+                    pdf_bytes = report_executivo.gerar_relatorio_executivo(
                         resultados_analise=resultados_analise,
                         extrato_df=extrato_filtrado,
                         contabil_df=contabil_filtrado,
@@ -555,43 +558,6 @@ def main():
                         conta_analisada=conta_analisada,
                         meta_cobertura=meta_cobertura_input,
                     )
-
-                    # Verificar se o pdf_path é válido
-                    if pdf_path is None:
-                        motivo = "Não foi possível gerar o caminho do arquivo PDF"
-                        audit.log_report_generation(
-                            formato=formato_relatorio.lower(), user=usuario_atual, lote=lote_auditoria,
-                            success=False, error_message=motivo,
-                        )
-                        get_structured_logger().log_geracao_relatorio(
-                            formato=formato_relatorio.lower(), sucesso=False, motivo='falha',
-                            matches_incluidos=0, divergencias_incluidas=0,
-                            duracao_segundos=time.time() - _inicio_relatorio,
-                        )
-                        st.error(f"❌ Erro: {motivo}")
-                        st.stop()
-
-                    # Verificar se o arquivo foi criado
-                    if not os.path.exists(pdf_path):
-                        # Mensagem sem o caminho local (revisão de segurança,
-                        # XCRE-43): o path completo em /tmp não deve vazar
-                        # para o log de auditoria nem para a tela do usuário.
-                        motivo = "Arquivo PDF não foi criado pelo gerador de relatório"
-                        audit.log_report_generation(
-                            formato=formato_relatorio.lower(), user=usuario_atual, lote=lote_auditoria,
-                            success=False, error_message=motivo,
-                        )
-                        get_structured_logger().log_geracao_relatorio(
-                            formato=formato_relatorio.lower(), sucesso=False, motivo='falha',
-                            matches_incluidos=0, divergencias_incluidas=0,
-                            duracao_segundos=time.time() - _inicio_relatorio,
-                        )
-                        st.error(f"❌ Erro: {motivo}")
-                        st.stop()
-
-                    # Ler o PDF gerado
-                    with open(pdf_path, "rb") as pdf_file:
-                        pdf_bytes = pdf_file.read()
 
                     # Verificar se o conteúdo foi lido
                     if len(pdf_bytes) == 0:

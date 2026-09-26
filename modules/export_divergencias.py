@@ -32,6 +32,16 @@ import pandas as pd
 # como início de fórmula quando abrem um CSV.
 _PREFIXOS_FORMULA_PERIGOSOS = ('=', '+', '-', '@')
 
+# Caracteres que o Excel/LibreOffice ignoram à esquerda de uma célula ao
+# decidir se ela começa com um prefixo de fórmula (revisão de segurança
+# dedicada, SEC-R-04, XCRE-52): um valor como "\t=cmd|'/C calc'!A0"
+# (TAB antes do "=") ainda é interpretado como fórmula ao abrir o CSV,
+# mesmo não começando LITERALMENTE por nenhum dos _PREFIXOS_FORMULA_PERIGOSOS.
+# Espaço, TAB, CR, LF e NBSP (non-breaking space, comum em texto colado
+# de fontes externas) — só usados para a DECISÃO, nunca para reescrever
+# o valor (a sanitização prefixa o texto ORIGINAL, sem remover nada dele).
+_CARACTERES_IGNORAVEIS_NA_DETECCAO_DE_FORMULA = ' \t\r\n\xa0'
+
 # As tabelas de divergência (pages/analise_dados.py) formatam valores
 # monetários com `f"R$ {valor:,.2f}"` — Python usa o padrão en-US
 # (milhar ',', decimal '.'), ex. "R$ 1,300.00" ou "R$ -60.50". Nesse
@@ -69,12 +79,20 @@ def _normalizar_moeda_texto_pt_br(valor):
 
 
 def _sanitizar_celula_formula(valor):
-    """Prefixa com apóstrofo qualquer célula de texto que comece por um
-    caractere de fórmula, forçando a planilha a tratá-la como texto
-    literal. Não afeta números, datas ou células que não comecem por
-    esses caracteres; a sanitização existe só na cópia exportada, nunca
+    """Prefixa com apóstrofo qualquer célula de texto que comece — ou
+    que comece por um dos caracteres em _CARACTERES_IGNORAVEIS_NA_DETECCAO_DE_FORMULA
+    seguidos de — um caractere de fórmula, forçando a planilha a tratá-la
+    como texto literal. O apóstrofo é sempre adicionado no início
+    ABSOLUTO do valor original (nunca depois do espaço/TAB/CR/LF/NBSP
+    ignorado): como o primeiro caractere passa a ser `'`, a planilha para
+    a detecção de fórmula ali, então não importa o que vem depois. Não
+    afeta números, datas ou células cujo primeiro caractere não-ignorável
+    não seja um desses; a sanitização existe só na cópia exportada, nunca
     no dado exibido em tela ou usado na conciliação."""
-    if isinstance(valor, str) and valor.startswith(_PREFIXOS_FORMULA_PERIGOSOS):
+    if not isinstance(valor, str):
+        return valor
+    texto_significativo = valor.lstrip(_CARACTERES_IGNORAVEIS_NA_DETECCAO_DE_FORMULA)
+    if texto_significativo.startswith(_PREFIXOS_FORMULA_PERIGOSOS):
         return "'" + valor
     return valor
 

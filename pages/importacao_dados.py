@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import csv
 import io
 import requests
 import re
@@ -48,6 +49,27 @@ def validar_tamanho_arquivo(arquivo):
 # CPU proporcional ao conteúdo, não ao tamanho em bytes validado.
 MAX_PDF_PAGINAS = int(os.getenv("CONCILIACAO_MAX_PDF_PAGINAS", "200"))
 MAX_CNAB_LINHAS = int(os.getenv("CONCILIACAO_MAX_CNAB_LINHAS", "50000"))
+
+# Limites ESTRUTURAIS de OFX/CSV (revisão de segurança, SEC-R-03,
+# XCRE-52): MAX_FILE_SIZE_BYTES acima só limita o tamanho em bytes do
+# upload — um OFX de 50.000 transações cabe folgado nesses 10 MiB e
+# levava ~119s no `ofxparse` (crescimento pior que linear), uma negação
+# de serviço barata de montar. As constantes abaixo rejeitam ANTES do
+# parsing pesado, com mensagem fixa em português.
+#
+# OFX: contagem LITERAL (case-sensitive) de ocorrências de `<STMTTRN>`
+# nos bytes crus — decisão deliberada do contrato desta issue: é uma
+# contagem "barata" (sem decodificar/parsear nada) que cobre o formato
+# real emitido pelos bancos (tag em maiúsculas, conforme o padrão OFX);
+# uma variante de grafia (minúsculas) não seria contada aqui e passaria
+# para o `ofxparse` normalmente.
+LIMITE_OFX_MAX_TRANSACOES = int(os.getenv("CONCILIACAO_LIMITE_OFX_TRANSACOES", "20000"))
+# CSV: linhas totais (contadas via csv.reader, inclui o cabeçalho),
+# colunas do cabeçalho, e caracteres de um único campo — qualquer um
+# dos três acima do limite rejeita o arquivo inteiro.
+LIMITE_CSV_MAX_LINHAS = int(os.getenv("CONCILIACAO_LIMITE_CSV_LINHAS", "100000"))
+LIMITE_CSV_MAX_COLUNAS = int(os.getenv("CONCILIACAO_LIMITE_CSV_COLUNAS", "200"))
+LIMITE_CSV_MAX_CARACTERES_CAMPO = int(os.getenv("CONCILIACAO_LIMITE_CSV_CAMPO_CARACTERES", "10000"))
 
 def _contar_linhas_arquivo(arquivo) -> int:
     """Conta as linhas do arquivo (tentando os mesmos encodings dos
@@ -116,6 +138,54 @@ def _parsear_csv_cacheado(conteudo: bytes, encoding: str) -> pd.DataFrame:
     return pd.read_csv(io.StringIO(texto))
 
 
+def _validar_limites_estruturais_csv(texto: str, nome: str) -> Optional[str]:
+    """Uma única passada pelo CSV com `csv.reader` checando linhas
+    totais, colunas do cabeçalho e o maior campo (SEC-R-03, XCRE-52).
+    Devolve a mensagem de rejeição (fixa, em português) se algum limite
+    for ultrapassado, ou None se estiver tudo dentro dos limites.
+
+    Levanta temporariamente o teto interno do módulo `csv`
+    (`field_size_limit`, 131072 por padrão) para bater com
+    LIMITE_CSV_MAX_CARACTERES_CAMPO: sem isso, um campo maior que esse
+    padrão faria o próprio `csv.reader` estourar `csv.Error` ("field
+    larger than field limit") ANTES do nosso `len(campo)` conseguir
+    rodar — um stack trace vazando em vez da mensagem fixa. Sempre
+    restaura o valor anterior no `finally`, porque é um estado global
+    do processo, não local desta função."""
+    limite_anterior = csv.field_size_limit(max(LIMITE_CSV_MAX_CARACTERES_CAMPO, 1))
+    try:
+        num_colunas_cabecalho = None
+        num_linhas = 0
+        for linha in csv.reader(io.StringIO(texto)):
+            num_linhas += 1
+            if num_colunas_cabecalho is None:
+                num_colunas_cabecalho = len(linha)
+                if num_colunas_cabecalho > LIMITE_CSV_MAX_COLUNAS:
+                    return (
+                        f"Arquivo '{nome}' tem {num_colunas_cabecalho} colunas, acima do limite de "
+                        f"{LIMITE_CSV_MAX_COLUNAS} colunas por importação."
+                    )
+            if num_linhas > LIMITE_CSV_MAX_LINHAS:
+                return (
+                    f"Arquivo '{nome}' tem mais de {LIMITE_CSV_MAX_LINHAS} linhas, acima do limite "
+                    "permitido por importação."
+                )
+            for campo in linha:
+                if len(campo) > LIMITE_CSV_MAX_CARACTERES_CAMPO:
+                    return (
+                        f"Arquivo '{nome}' tem um campo com mais de {LIMITE_CSV_MAX_CARACTERES_CAMPO} "
+                        "caracteres, acima do limite permitido por campo."
+                    )
+        return None
+    except csv.Error:
+        return (
+            f"Arquivo '{nome}' tem um campo com mais de {LIMITE_CSV_MAX_CARACTERES_CAMPO} "
+            "caracteres, acima do limite permitido por campo."
+        )
+    finally:
+        csv.field_size_limit(limite_anterior)
+
+
 def validar_entrada_csv(arquivo) -> Tuple[bool, str, Optional[str], Optional[pd.DataFrame]]:
     """Valida um upload CSV antes de usá-lo na conciliação.
 
@@ -155,6 +225,16 @@ def validar_entrada_csv(arquivo) -> Tuple[bool, str, Optional[str], Optional[pd.
             None,
             None,
         )
+
+    # Limites estruturais ANTES do parsing pesado do pandas (SEC-R-03,
+    # XCRE-52): uma única passada com csv.reader (mais barata que
+    # pd.read_csv, que faz inferência de tipo e indexação) contando
+    # linhas totais, colunas do cabeçalho e o maior campo — rejeita
+    # assim que o primeiro limite é ultrapassado, sem ler o arquivo
+    # inteiro quando não é preciso.
+    motivo_limite = _validar_limites_estruturais_csv(texto, nome)
+    if motivo_limite:
+        return False, motivo_limite, encoding_usado, None
 
     try:
         df = _parsear_csv_cacheado(conteudo, encoding_usado)
@@ -203,6 +283,14 @@ def validar_entrada_ofx(arquivo) -> Tuple[bool, str]:
     if b'ofx' not in conteudo[:2048].lower():
         return False, f"Arquivo '{nome}' não parece ser um OFX válido (cabeçalho OFX não encontrado)."
 
+    num_transacoes = conteudo.count(b'<STMTTRN>')
+    if num_transacoes > LIMITE_OFX_MAX_TRANSACOES:
+        return (
+            False,
+            f"Arquivo '{nome}' tem {num_transacoes} transações, acima do limite de "
+            f"{LIMITE_OFX_MAX_TRANSACOES} transações por importação.",
+        )
+
     return True, ""
 
 
@@ -229,6 +317,14 @@ def _categorizar_motivo_carga_arquivo(mensagem: str) -> str:
         return 'encoding_invalido'
     if 'colunas obrigatórias' in texto:
         return 'colunas_obrigatorias_faltando'
+    if 'transações, acima do limite' in texto:
+        return 'limite_transacoes_excedido'
+    if 'linhas, acima do limite' in texto:
+        return 'limite_linhas_excedido'
+    if 'colunas, acima do limite' in texto:
+        return 'limite_colunas_excedido'
+    if 'caracteres, acima do limite' in texto:
+        return 'limite_campo_excedido'
     if 'não contém dados' in texto or 'não pôde ser interpretado' in texto:
         return 'erro_parsing'
     return 'erro_desconhecido'

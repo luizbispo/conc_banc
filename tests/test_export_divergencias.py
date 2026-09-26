@@ -273,6 +273,121 @@ def test_moeda_textual_do_fluxo_real_similaridades_vira_pt_br_no_csv():
     assert 'R$ 2.50' not in texto
 
 
+# --- SEC-R-04 (revisão de segurança dedicada, docs/revisao-seguranca-fase-5.md,
+# issue XCRE-52): prefixo de fórmula precedido por caracteres de
+# controle/espaço/NBSP driblava a proteção, porque `_sanitizar_celula_formula`
+# só checava `valor.startswith(_PREFIXOS_FORMULA_PERIGOSOS)` no texto
+# BRUTO — uma célula "\t=cmd|'/C calc'!A0" (TAB antes do "=") não começa
+# literalmente por nenhum dos 4 caracteres perigosos, mas o Excel/LibreOffice
+# ignoram esse TAB ao abrir o CSV e ainda interpretam como fórmula.
+#
+# Os testes abaixo reproduzem o achado ANTES da correção (devem falhar
+# contra o `modules/export_divergencias.py` anterior a esta issue) e
+# passam a valer como regressão depois.
+
+_CARACTERES_IGNORAVEIS_PARA_TESTE = {
+    "TAB": "\t",
+    "CR": "\r",
+    "LF": "\n",
+    "espaço": " ",
+    "NBSP": "\xa0",
+}
+
+
+@pytest.mark.parametrize("nome_caractere,caractere", _CARACTERES_IGNORAVEIS_PARA_TESTE.items())
+@pytest.mark.parametrize("prefixo_perigoso", ["=", "+", "-", "@"])
+def test_prefixo_de_formula_precedido_por_caractere_ignoravel_recebe_apostrofo(prefixo_perigoso, nome_caractere, caractere):
+    payload = f"{caractere}{prefixo_perigoso}CMD('calc')"
+    df = pd.DataFrame([{'Descrição_Bancário': payload, 'Valor': 'R$ 10,00'}])
+    csv_bytes = gerar_csv_divergencias(df)
+    texto = csv_bytes.decode('utf-8-sig')
+
+    assert f"'{payload}" in texto, f"payload {nome_caractere}+{prefixo_perigoso!r} não recebeu apóstrofo"
+    assert texto.count(payload) == texto.count(f"'{payload}")
+
+
+@pytest.mark.parametrize("nome_caractere,caractere", _CARACTERES_IGNORAVEIS_PARA_TESTE.items())
+def test_multiplos_caracteres_ignoraveis_antes_do_prefixo_ainda_recebe_apostrofo(nome_caractere, caractere):
+    """Mais de uma ocorrência do mesmo caractere ignorável à esquerda
+    (ex.: dois TABs) precisa continuar sendo detectada."""
+    payload = f"{caractere * 3}=CMD('calc')"
+    df = pd.DataFrame([{'Descrição_Bancário': payload}])
+    csv_bytes = gerar_csv_divergencias(df)
+    texto = csv_bytes.decode('utf-8-sig')
+
+    assert f"'{payload}" in texto
+
+
+def test_mistura_de_caracteres_ignoraveis_antes_do_prefixo_recebe_apostrofo():
+    payload = " \t\r\n\xa0=CMD('calc')"
+    df = pd.DataFrame([{'Descrição_Bancário': payload}])
+    csv_bytes = gerar_csv_divergencias(df)
+    texto = csv_bytes.decode('utf-8-sig')
+
+    assert f"'{payload}" in texto
+
+
+@pytest.mark.parametrize("payload_dde_ou_hyperlink", [
+    # Aspas simples de propósito (não duplas): um payload com aspas
+    # duplas literais seria escapado (duplicado) pelo próprio to_csv por
+    # conter ';', o que quebraria a comparação de substring abaixo sem
+    # ter nenhuma relação com a proteção contra fórmula em si.
+    "=DDE('cmd';'/c calc.exe';'__DdeLink')",
+    "=cmd|'/C calc'!A0",
+    "=HYPERLINK('http://exemplo.invalid/roubo';'clique aqui')",
+    "\t=HYPERLINK('http://exemplo.invalid/roubo';'clique aqui')",
+    "\r=DDE('cmd';'/c calc.exe';'__DdeLink')",
+])
+def test_payloads_dde_e_hyperlink_recebem_apostrofo(payload_dde_ou_hyperlink):
+    df = pd.DataFrame([{'Descrição_Bancário': payload_dde_ou_hyperlink}])
+    csv_bytes = gerar_csv_divergencias(df)
+    texto = csv_bytes.decode('utf-8-sig')
+
+    assert f"'{payload_dde_ou_hyperlink}" in texto
+    assert texto.count(payload_dde_ou_hyperlink) == texto.count(f"'{payload_dde_ou_hyperlink}")
+
+
+def test_texto_legitimo_comecando_por_caractere_ignoravel_sem_formula_nao_recebe_apostrofo():
+    """Um TAB/espaço à esquerda sem nenhum prefixo de fórmula depois não
+    é perigoso — não pode ganhar apóstrofo (ficaria visível na planilha
+    sem necessidade)."""
+    payload = "\tPIX recebido de Cliente A"
+    df = pd.DataFrame([{'Descrição_Bancário': payload}])
+    csv_bytes = gerar_csv_divergencias(df)
+    texto = csv_bytes.decode('utf-8-sig')
+
+    assert payload in texto
+    assert f"'{payload}" not in texto
+
+
+@pytest.mark.parametrize("valor_negativo_legitimo", [
+    "R$ -60,50", "R$ -4,92", "R$ -1.300,00", "R$ 0,00",
+])
+def test_valor_monetario_negativo_legitimo_permanece_intacto(valor_negativo_legitimo):
+    df = pd.DataFrame([{'Descrição': 'Item', 'Valor': valor_negativo_legitimo}])
+    csv_bytes = gerar_csv_divergencias(df)
+    texto = csv_bytes.decode('utf-8-sig')
+
+    assert valor_negativo_legitimo in texto
+    assert f"'{valor_negativo_legitimo}" not in texto
+
+
+def test_numero_negativo_legitimo_em_coluna_numerica_permanece_intacto():
+    """Uma célula numérica de verdade (não string) nunca é candidata a
+    fórmula — `_sanitizar_celula_formula` só atua em `str`. Reparseia o
+    CSV em vez de comparar string formatada: `to_csv(decimal=',')` sem
+    `float_format` não garante 2 casas fixas (-60.50 pode virar "-60,5")."""
+    df = pd.DataFrame([{'Descrição': 'Item', 'Diferença_Valor': -60.50}])
+    csv_bytes = gerar_csv_divergencias(df)
+    texto = csv_bytes.decode('utf-8-sig')
+
+    assert "'" not in texto
+
+    import io
+    df_relido = pd.read_csv(io.BytesIO(csv_bytes), sep=';', decimal=',', encoding='utf-8-sig')
+    assert df_relido.loc[0, 'Diferença_Valor'] == -60.50
+
+
 def test_moeda_ja_pt_br_nao_e_alterada_pela_normalizacao():
     """Regressão: uma célula que já chegasse pronta em pt-BR (formato
     documentado no docstring do módulo, "R$ 1.234,56") não pode ser
