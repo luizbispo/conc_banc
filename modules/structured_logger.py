@@ -44,7 +44,8 @@ MOTIVOS_CARGA_ARQUIVO = {
     'sucesso', 'arquivo_vazio', 'arquivo_binario', 'encoding_invalido',
     'colunas_obrigatorias_faltando', 'tamanho_excedido', 'extensao_invalida',
     'cabecalho_invalido', 'nenhum_dado_extraido', 'erro_parsing',
-    'erro_desconhecido',
+    'erro_desconhecido', 'limite_transacoes_excedido', 'limite_linhas_excedido',
+    'limite_colunas_excedido', 'limite_campo_excedido',
 }
 MOTIVOS_GENERICO_SUCESSO_FALHA = {'sucesso', 'falha'}
 

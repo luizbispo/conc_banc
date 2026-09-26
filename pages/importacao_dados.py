@@ -329,6 +329,30 @@ def _categorizar_motivo_carga_arquivo(mensagem: str) -> str:
         return 'erro_parsing'
     return 'erro_desconhecido'
 
+
+# Categorias de rejeição por limite estrutural (OFX: transações; CSV:
+# linhas, colunas, tamanho de campo). Achado do E2E da fase 5c: subir
+# um OFX de 25.000 transações mostrava a mensagem certa MAS TAMBÉM duas
+# redundantes por cima ("motivo de carga de arquivo desconhecido" e
+# "Não foi possível extrair dados do arquivo") — o fluxo seguia depois
+# da rejeição em vez de parar. `processar_arquivo` devolve o sentinela
+# abaixo (em vez de None) para esses motivos, para o chamador do fluxo
+# de upload único (mais abaixo neste módulo) saber que uma mensagem
+# específica JÁ foi exibida e não mostrar por cima a mensagem genérica.
+_MOTIVOS_LIMITE_CARGA_ARQUIVO = {
+    'limite_transacoes_excedido', 'limite_linhas_excedido',
+    'limite_colunas_excedido', 'limite_campo_excedido',
+}
+
+
+class _ArquivoRejeitadoPorLimite:
+    """Sentinela: distingue "rejeitado por limite, mensagem específica
+    já mostrada" de None ("nenhum dado extraído", sem mensagem própria
+    exibida por processar_arquivo)."""
+
+
+ARQUIVO_REJEITADO_POR_LIMITE = _ArquivoRejeitadoPorLimite()
+
 # --- Menu Customizado ---
 with st.sidebar:
     st.markdown("### Navegação Principal") 
@@ -1089,8 +1113,8 @@ def _analisar_linha_detalhe(linha):
 def processar_pdf(arquivo):
     """Tenta extrair dados de PDF com texto"""
     try:
-        import PyPDF2
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(arquivo.read()))
+        import pypdf
+        pdf_reader = pypdf.PdfReader(io.BytesIO(arquivo.read()))
 
         num_paginas = len(pdf_reader.pages)
         if num_paginas > MAX_PDF_PAGINAS:
@@ -1167,12 +1191,14 @@ def processar_arquivo(arquivo, tipo_arquivo):
                     file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
                     user=usuario_atual, success=False, error_message=motivo_entrada,
                 )
+                motivo_categoria = _categorizar_motivo_carga_arquivo(motivo_entrada)
                 get_structured_logger().log_carga_arquivo(
-                    formato=tipo_arquivo, sucesso=False,
-                    motivo=_categorizar_motivo_carga_arquivo(motivo_entrada),
+                    formato=tipo_arquivo, sucesso=False, motivo=motivo_categoria,
                     registros=0, tamanho_bytes=tamanho_arquivo,
                     duracao_segundos=time.time() - _inicio_carga,
                 )
+                if motivo_categoria in _MOTIVOS_LIMITE_CARGA_ARQUIVO:
+                    return ARQUIVO_REJEITADO_POR_LIMITE
                 return None
             df = processar_ofx(arquivo)
         elif tipo_arquivo == 'cnab':
@@ -1188,12 +1214,14 @@ def processar_arquivo(arquivo, tipo_arquivo):
                         file_name=arquivo.name, file_type=tipo_arquivo, file_size=tamanho_arquivo,
                         user=usuario_atual, success=False, error_message=motivo_entrada,
                     )
+                    motivo_categoria = _categorizar_motivo_carga_arquivo(motivo_entrada)
                     get_structured_logger().log_carga_arquivo(
-                        formato=tipo_arquivo, sucesso=False,
-                        motivo=_categorizar_motivo_carga_arquivo(motivo_entrada),
+                        formato=tipo_arquivo, sucesso=False, motivo=motivo_categoria,
                         registros=0, tamanho_bytes=tamanho_arquivo,
                         duracao_segundos=time.time() - _inicio_carga,
                     )
+                    if motivo_categoria in _MOTIVOS_LIMITE_CARGA_ARQUIVO:
+                        return ARQUIVO_REJEITADO_POR_LIMITE
                     return None
             else:
                 df = pd.read_excel(arquivo)
@@ -1331,7 +1359,7 @@ if metodo_importacao == "📤 Upload de Arquivos":
                             for arquivo in info_arquivos['bancarios'][conta_selecionada]:
                                 tipo_arquivo = detectar_tipo_arquivo(arquivo.name)
                                 df = processar_arquivo(arquivo, tipo_arquivo)
-                                if df is not None and not df.empty:
+                                if isinstance(df, pd.DataFrame) and not df.empty:
                                     dfs_bancarios.append(df)
                             
                             # Processar arquivos contábeis
@@ -1343,7 +1371,7 @@ if metodo_importacao == "📤 Upload de Arquivos":
                                     st.warning(f"⚠️ OFX ignorado no contábil: {arquivo.name}")
                                     continue
                                 df = processar_arquivo(arquivo, tipo_arquivo)
-                                if df is not None and not df.empty:
+                                if isinstance(df, pd.DataFrame) and not df.empty:
                                     dfs_contabeis.append(df)
                             
                             # Combinar DataFrames
@@ -1424,13 +1452,15 @@ if metodo_importacao == "📤 Upload de Arquivos":
                     with st.spinner(f"Processando {extrato_file.name}..."):
                         extrato_df = processar_arquivo(extrato_file, tipo_arquivo)
                     
-                    if extrato_df is not None and not extrato_df.empty:
+                    if isinstance(extrato_df, pd.DataFrame) and not extrato_df.empty:
                         st.session_state.extrato_df = extrato_df
                         st.success(f"✅ Extrato carregado: {len(extrato_df)} transações")
-                        
+
                         # Mostrar preview dos dados
                         st.dataframe(extrato_df.head(), width='stretch')
-                    else:
+                    elif extrato_df is None:
+                        # ARQUIVO_REJEITADO_POR_LIMITE: mensagem específica já
+                        # exibida dentro de processar_arquivo — não duplicar.
                         st.error("❌ Não foi possível extrair dados do arquivo")
             
                 except Exception as e:
@@ -1458,11 +1488,13 @@ if metodo_importacao == "📤 Upload de Arquivos":
                     with st.spinner(f"Processando {contabil_file.name}..."):
                         contabil_df = processar_arquivo(contabil_file, tipo_arquivo)
                     
-                    if contabil_df is not None and not contabil_df.empty:
+                    if isinstance(contabil_df, pd.DataFrame) and not contabil_df.empty:
                         st.session_state.contabil_df = contabil_df
                         st.success(f"✅ Lançamentos carregados: {len(contabil_df)} registros")
                         st.dataframe(contabil_df.head(), width='stretch')
-                    else:
+                    elif contabil_df is None:
+                        # ARQUIVO_REJEITADO_POR_LIMITE: mensagem específica já
+                        # exibida dentro de processar_arquivo — não duplicar.
                         st.error("❌ Não foi possível extrair dados do arquivo")
                     
                 except Exception as e:

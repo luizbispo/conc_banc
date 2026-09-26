@@ -3184,3 +3184,396 @@ verificados** nesta rodada:
    o PDF desta rodada é textualmente idêntico ao da Fase 5b além do carimbo
    e o raster de p4 é byte a byte igual; a decisão de aceite continua pendente
    com o líder/arquiteto.
+
+## Fase 5d — Migração PyPDF2 → pypdf e mensagem única de limite (verificação integrada R1)
+
+### Escopo, evidência e dependências
+
+Esta seção registra a **verificação por execução (Rodada R1)** da Fase 5d da
+issue XCRE-53, executada depois das duas rodadas do desenvolvedor principal:
+`1c81a9f` (D1 — migração PyPDF2 → `pypdf==6.19.0`) e `2dfcc5a` (D2 — mensagem
+única na rejeição por limite OFX/CSV), ambos sobre `22fd0fd` (`origin/main`,
+que tem as fases 1 a 5c). O checkout do revisor foi apenas avançado em
+fast-forward até `2dfcc5a`, de forma que os dois commits são **os mesmos
+hashes** produzidos nas rodadas — sem rebase e sem reescrita de histórico.
+**Nenhum arquivo de produção foi alterado nesta verificação**: a única edição
+é este arquivo (`docs/casos-de-teste.md`), mais o PDF regenerado a partir
+dele.
+
+**Commits e arquivos revisados (`git diff --stat 22fd0fd..2dfcc5a` → 7
+arquivos, +429/−19):**
+
+| Commit | Item | Arquivos |
+|---|---|---|
+| `1c81a9f` | D1 — migração de PDF (5 arquivos, +61/−7) | `pages/importacao_dados.py`, `requirements.txt`, `tests/test_importacao_limites.py`, `tests/test_relatorio_executivo.py`, `tests/test_report_generator.py` |
+| `2dfcc5a` | D2 — mensagem única por limite (3 arquivos, +368/−12) | `modules/structured_logger.py`, `pages/importacao_dados.py`, `tests/test_importacao_mensagem_unica_limite.py` (novo) |
+
+**Ambiente desta execução (real, local):**
+
+- Python 3.10.12; pytest 9.1.1; Streamlit 1.64.0; `pypdf` 6.19.0 instalado e
+  pinado; WeasyPrint 70.0.
+- Suíte: `python3 -m pytest tests/ -q` no checkout em `2dfcc5a`.
+- E2E: `streamlit run app.py` local (porta **8593**), Chromium headless via
+  Playwright 1.62 (Chromium 151.0.7922.34), banco de usuários, audit e log
+  estruturado apontando para `e2e_out/f5d/estado/` (fora dos caminhos padrão
+  do repositório); banco recém-criado (zerado), login sintético
+  `admin`/`admin123`.
+- Roteiro do E2E: o mesmo da Fase 5c (`e2e_fase5c.py` adaptado para
+  `e2e_fase5d.py`), com **um cenário novo** (OFX de 25.000 transações)
+  acrescentado ao final.
+- Somente dados sintéticos: `Exemplos/B_1234490.ofx`,
+  `Exemplos/C_1234490.ofx`, CSV vazio/binário gerados na execução e um OFX
+  sintético de 25.000 transações (2.677.918 bytes) gerado na própria
+  execução. **Nenhum dado real foi usado.**
+- Baseline do PDF: `relatorio_executivo_f5c.pdf` (60.457 bytes, gate da
+  XCRE-52).
+- Comandos do gate: `python3 -m pytest tests/ -q` (3×);
+  `python3 -m pytest tests/ -q --collect-only`; extração do baseline
+  `22fd0fd` com `git archive` para diretório separado e
+  `pytest` nele; `python3 e2e_fase5d.py --repo <repo> --port 8593 --out
+  <evidencias> --tag f5d` (com o Streamlit subido e morto pelo script
+  `run_e2e.sh`, que registra o PID e mata o servidor no final);
+  `python3 check_invariantes.py <repo>`; `pdfinfo` / `pdffonts` /
+  `pdftotext -layout` no PDF baixado; `grep -rniI PyPDF2`; execução da área
+  PDF com `PyPDF2` bloqueado no `sys.meta_path`; `python3
+  scripts/gerar_pdf_casos_de_teste.py` após editar este arquivo.
+
+**Casos que dependem de espera de tempo real (identificados ANTES de
+executar):** `CT-AUTH-03` (liberação após os 15 min de bloqueio de login) e
+`CT-AUTH-05` (expiração de sessão, `JWT_EXPIRATION_HOURS = 24`). Ambos foram
+**identificados e excluídos desta execução** — nenhum caso novo da Fase 5d
+(`CT-F5D-01..08`) depende de tempo real, e as esperas internas do script E2E
+são apenas sincronização de interface. Os dois seguem `NAO EXECUTADO` até a
+rodada R2, com confirmação do usuário (ver CT-F5D-08).
+
+**Evidência desta rodada:**
+
+| Verificação | Resultado observado |
+|---|---|
+| Suíte completa | `pytest tests/ -q` → **393 passed, 1 skipped, 48 warnings** (3 execuções: 46,07 s / 47,09 s / 55,87 s); `--collect-only` → **394 testes** |
+| Linha de base `22fd0fd` | extraída com `git archive` e rodada no mesmo ambiente → **386 passed, 1 skipped** (387 coletados, 42,96 s) → **+7 testes** |
+| Origem dos +7 | `tests/test_importacao_limites.py` 5 → 7 (**+2**) e novo `tests/test_importacao_mensagem_unica_limite.py` (**+5**); os demais 33 arquivos de teste sem variação de contagem |
+| Único ignorado | `tests/test_pluralizacao.py:94` (“gerar_relatorio_executivo exige DataFrames não vazios”) — mesmo da linha de base; nenhum teste novo ganhou `skip` |
+| Revisão dos commits | leitura dos dois diffs: 4 chamadores de `processar_arquivo` (linhas 1361, 1373, 1453 e 1489 de `pages/importacao_dados.py`) todos trocados para `isinstance(df, pd.DataFrame)`; nenhum `df is not None and not df.empty` restou a receber a sentinela; allowlist `MOTIVOS_CARGA_ARQUIVO` com os 4 motivos de limite |
+| Migração pypdf | `grep -rniI PyPDF2` em `*.py`/`*.txt`/`*.toml` → **nenhum import**, só menções históricas em docstrings dos testes novos; área PDF/relatório/smoke rodada com `PyPDF2` **bloqueado** no `sys.meta_path` → **47 passed**; `pypdf==6.19.0` no `requirements.txt` e no `pip list` |
+| E2E real (Streamlit + navegador) | **21 de 21 verificações `PASS`, 0 `FAIL`** (~105 s, porta 8593, banco/log isolados, login sintético em banco zerado) |
+| OFX de 25.000 (cenário novo) | **exatamente 1** mensagem de erro: “❌ Arquivo 'extrato_25000.ofx' tem 25000 transações, acima do limite de 20000 transações por importação.”; 0 ocorrências de “motivo de carga de arquivo desconhecido”, “Não foi possível extrair dados do arquivo” e `Traceback`; 4 alertas no total (2 `st.info`, 1 erro, 1 do spinner) |
+| Log estruturado da mesma execução | 10 linhas JSONL válidas; a rejeição grava `evento=carga_arquivo, formato=ofx, motivo=limite_transacoes_excedido, sucesso=false, tamanho_bytes=2677918` — sem `ValueError` de motivo desconhecido |
+| Invariantes B × C (fora da UI) | 18 × 18, 11 + 3 = **14**, **77,8%**, efetiva **61,1%**, **4 + 4** divergências, somas 1.386,22 / 1.538,93, diferença líquida **147,55**, resíduo **0,00**, ponte “fecha” |
+| Invariantes na interface | `Transações Analisadas 18` (delta “14 com correspondência”), `Lançamentos Analisados 18`, `Cobertura 77.8%`, `Itens em Divergência 8`, `Correspondências 14`, `Taxa de Conciliação 77.8%` |
+| CSVs baixados no E2E | bancário 4 linhas, contábil 4, similaridades 4; BOM e `;` intactos; datas `dd/mm/aaaa`; valores em pt-BR 4/4 em cada arquivo; **0** células iniciadas por `=`, `+`, `-` ou `@` |
+| PDF Executivo | 60.462 bytes, WeasyPrint 70.0, A4, **9 páginas**, 4 faces Inter embutidas (`pdffonts`: emb/sub/uni = yes), texto extraído **20.200 bytes**; varredura: **0** ocorrências de `admin123`, `password`, `Bearer`, `eyJ`, `Traceback`, `/home/`, `/tmp/`, `users.db`; texto com “77,8%”, “61,1%”, “Diferença líquida de R$ 147,55” e “Resíduo … R$ 0,00” |
+| PDF × baseline Fase 5c | texto 20.200 bytes nos dois; `diff` = **12 linhas**, todas nas 3 ocorrências do carimbo de hora (18:12 → 21:49). Fora do carimbo, o texto é **idêntico** |
+| Pins × ambiente instalado | `pip list` confere `pypdf 6.19.0` com o `requirements.txt`; as demais 14 dependências não foram alteradas por D1/D2 |
+
+**Limitações declaradas desta rodada:** (a) o squad não tem credencial Git —
+sem push e sem PR, os commits ficam só nos worktrees locais; (b) `CT-AUTH-03`
+(15 min) e `CT-AUTH-05` (24 h) são casos de tempo real, **identificados e não
+executados** nesta rodada (rodada R2 posterior, com checkpoint antes da
+espera); (c) `pip-audit -r requirements.txt --no-deps` **não foi repetido**
+aqui — é a re-verificação independente do arquiteto (rodada A1); o registro
+da migração é da rodada D1; (d) instalação limpa + `import app` em Python
+3.10/3.12/3.13 **não foi repetida** nesta etapa — registro da rodada D1;
+nesta execução só Python 3.10.12; (e) a **reprovação pré-correção** dos
+testes novos (rodar a suíte contra o código anterior para confirmar que
+falhavam) **não** foi reexecutada aqui — é registro das rodadas D1/D2; (f)
+**rasterização omitida de propósito** (instrução da rodada: não rasterizar
+além do necessário) — a comparação pixel a pixel feita na Fase 5c não foi
+repetida, a comparação com o baseline é textual; (g) os limites **CSV**
+(linhas, colunas, campo) foram confirmados com mensagem única no nível de
+`processar_arquivo` (pytest) e pela AppTest apenas no cenário OFX — **não
+subiram ao navegador**; (h) evidências de execução (telas, CSVs, PDF, JSON,
+log) ficam fora do repositório e não são entregáveis versionados; (i)
+tokens: o ambiente não expõe a métrica de consumo deste agente, então nenhum
+número é declarado para esta rodada (as rodadas do Claude registram as suas
+nos comentários da issue); (j) revisão limitada a rodar e conferir —
+arquitetura, design e segurança mais profunda ficam com o arquiteto.
+
+#### CT-F5D-01 — Revisão dos commits `1c81a9f` e `2dfcc5a`
+
+**Objetivo:** Ler os dois diffs completos e conferir que cada um entrega só o
+item da sua rodada, sem mistura de escopo e sem chamador esquecido.
+
+**Pré-condição:** checkout do revisor em `2dfcc5a` com `git status` limpo.
+
+**Passos:**
+
+1. `git log --oneline -3` e `git show 1c81a9f --stat` / `git show 2dfcc5a
+   --stat`.
+2. `git show` de cada um e leitura linha a linha dos arquivos de produção
+   alterados.
+3. `grep -rn "processar_arquivo("` em `pages/` para listar todos os
+   chamadores e conferir o tratamento do retorno em cada um.
+
+**Resultado esperado:** D1 só no caminho de PDF/dependências; D2 só na
+allowlist e no fluxo de rejeição; nenhum chamador restou com a comparação
+antiga `df is not None and not df.empty`.
+
+**Status de execução:** `PASS` — D1: 5 arquivos, +61/−7
+(`processar_pdf` usa `pypdf.PdfReader`; `requirements.txt` troca
+`PyPDF2==3.0.1` por `pypdf==6.19.0`; 3 arquivos de teste migrados; 2 testes
+novos de PDF válido com texto e PDF malformado). D2: 3 arquivos, +368/−12
+(`MOTIVOS_CARGA_ARQUIVO` ganha `limite_transacoes_excedido`,
+`limite_linhas_excedido`, `limite_colunas_excedido`,
+`limite_campo_excedido`; sentinela `ARQUIVO_REJEITADO_POR_LIMITE` e
+`_MOTIVOS_LIMITE_CARGA_ARQUIVO` em `pages/importacao_dados.py`; os 4
+chamadores — linhas 1361, 1373, 1453 e 1489 — passaram a
+`isinstance(df, pd.DataFrame)`, e os dois do fluxo de upload único ganharam
+`elif ... is None` para não emitir a mensagem genérica por cima). Nenhum
+chamador esquecido; nenhum outro arquivo de produção tocado.
+
+#### CT-F5D-02 — Suíte completa de regressão após D1 e D2
+
+**Objetivo:** Rodar a suíte inteira no código das duas rodadas e comparar com
+a linha de base `origin/main`, confirmando que o delta se explica pelos
+testes novos.
+
+**Pré-condição:** checkout em `2dfcc5a`; dependências instaladas.
+
+**Passos:**
+
+1. `python3 -m pytest tests/ -q` (três vezes).
+2. `python3 -m pytest tests/ -q --collect-only` e contagem por arquivo.
+3. Extrair `22fd0fd` com `git archive` para diretório separado e rodar
+   `pytest` nele para ter a linha de base no mesmo ambiente.
+4. Conferir o teste ignorado com `-rs`.
+
+**Resultado esperado:** Tudo verde, com o único ignorado já presente na
+linha de base e o delta de testes explicado pelos arquivos tocados.
+
+**Status de execução:** `PASS` — **393 passed, 1 skipped, 48 warnings** nas
+três execuções (46,07 s / 47,09 s / 55,87 s); **394 coletados**. Linha de
+base `22fd0fd`: **386 passed, 1 skipped** (387 coletados, 42,96 s) → delta
+**+7**, fechado por `tests/test_importacao_limites.py` 5 → 7 e pelos 5
+testes de `tests/test_importacao_mensagem_unica_limite.py`. O ignorado segue
+sendo `tests/test_pluralizacao.py:94`.
+
+#### CT-F5D-03 — Migração PyPDF2 → pypdf confirmada por execução
+
+**Objetivo:** Confirmar por execução (não por leitura) que nada do código
+executado depende mais de `PyPDF2` e que a leitura/geração de PDF segue
+funcionando com `pypdf`.
+
+**Pré-condição:** `pypdf==6.19.0` no `requirements.txt` e no ambiente.
+
+**Passos:**
+
+1. `grep -rniI "PyPDF2"` em `*.py`, `*.txt` e `*.toml`.
+2. Rodar a área de PDF/importação/relatório com um bloqueador de import em
+   `sys.meta_path` que faz `import PyPDF2` falhar de propósito.
+3. `pip list | grep -i pypdf` e conferir o pin do `requirements.txt`.
+
+**Resultado esperado:** nenhum import; os testes passam mesmo com
+`PyPDF2` inacessível; pin conferido.
+
+**Status de execução:** `PASS` — `grep` sem nenhum `import PyPDF2` (restam
+apenas menções históricas em docstrings dos testes novos);
+`test_importacao_limites + test_report_generator + test_relatorio_executivo
++ test_importacao_mensagem_unica_limite + test_smoke_import_app` com
+`PyPDF2` bloqueado → **47 passed**; `pypdf 6.19.0` no ambiente e
+`pypdf==6.19.0` no `requirements.txt`. **Não repetido aqui:** instalação
+limpa nas três versões de Python e `pip-audit` (registros de D1 e etapa A1).
+
+#### CT-F5D-04 — E2E real com Streamlit local e navegador
+
+**Objetivo:** Executar o fluxo completo pela interface real (login sintético,
+validação de entrada, carga B × C, análise, exportações, geração e download
+do Executivo) com dados sintéticos e banco zerado, pelo mesmo roteiro da
+Fase 5c, para comparar diretamente.
+
+**Pré-condição:** app local na porta 8593 com banco/log isolados; dados
+sintéticos de `Exemplos/`; script Playwright com Chromium headless.
+
+**Passos:**
+
+1. Subir `streamlit run app.py --server.port 8593 --server.headless true`
+   com `CONCILIACAO_DB_PATH`, `CONCILIACAO_AUDIT_DB_PATH` e
+   `CONCILIACAO_STRUCTURED_LOG_PATH` apontando para `e2e_out/f5d/estado/`
+   (script `run_e2e.sh`, que mata o servidor ao final).
+2. Logar como `admin`/`admin123` em banco recém-criado (vazio).
+3. Enviar CSV vazio e CSV binário com a validação por nome ativada.
+4. Enviar `B_1234490.ofx` e `C_1234490.ofx`, processar e conferir 18 × 18.
+5. Executar a análise e ler as métricas da tela.
+6. Baixar os três CSVs de divergência e conferir conteúdo.
+7. Gerar e baixar o PDF Executivo e conferir a página pós-geração.
+8. Executar o cenário novo do OFX de 25.000 (CT-F5D-05).
+
+**Resultado esperado:** Todas as verificações `PASS`, sem exceção visível na
+interface.
+
+**Status de execução:** `PASS` — **21 de 21 verificações `PASS`, 0 `FAIL`**
+em ~105 s (`CT-F5-E2E-1a/1b/1c`, `2a`, `3a/3b/3c/3d`, `4a/4b/4c`,
+`CT-F5B-E2E-6a/6b/6c/6d`, `CT-F5-E2E-5a/5b`, `CT-F5C-E2E-6a`,
+`CT-F5D-E2E-7a/7b/7c`). Métricas da tela: 18 × 18, cobertura `77.8%`, 14
+correspondências, 8 divergências. CSVs e PDF baixados de verdade. Evidências:
+4 capturas de tela de página inteira + a do cenário do OFX de 25.000, o JSON
+de resultados, o JSON dos alertas, os 3 CSVs e o PDF. Observação técnica: o
+Streamlit 1.64 **não** expõe `data-alert-type` no DOM dos `stAlert`, então a
+contagem de erros do cenário novo usou a regra de texto (`❌`/termos de
+erro) — registrada na evidência para não parecer um filtro mais forte do que
+foi.
+
+#### CT-F5D-05 — OFX de 25.000 transações com exatamente uma mensagem
+
+**Objetivo:** Confirmar na interface real o achado do E2E publicado da Fase
+5c: o arquivo acima do limite é rejeitado com **uma única** mensagem clara em
+português, sem as duas redundantes.
+
+**Pré-condição:** E2E em execução; OFX sintético de 25.000 `<STMTTRN>`
+(2.677.918 bytes) gerado na própria execução; fluxo padrão da página (checkbox
+“Usar sistema de validação por nome de arquivo” **desligado** = SISTEMA
+ORIGINAL).
+
+**Passos:**
+
+1. Gerar o OFX de 25.000 transações em `e2e_out/f5d/extrato_25000.ofx` e
+   conferir `grep -c "<STMTTRN>"` = 25000.
+2. Login → Importação de Dados → enviar o arquivo no uploader de extrato
+   (sem clicar em nenhum botão: o fluxo processa no rerun).
+3. Esperar a mensagem de limite e coletar **todos** os `stAlert` da página
+   com texto e tipo.
+4. Contar as mensagens de erro e varrer a página inteira pelos textos
+   proibidos.
+5. Conferir o log estruturado da mesma execução.
+
+**Resultado esperado:** exatamente 1 mensagem de erro, com “25000
+transações” e o limite “20000 transações”; nenhum “motivo de carga de arquivo
+desconhecido”, nenhum “Não foi possível extrair dados do arquivo”, nenhum
+`Traceback`; log com `motivo=limite_transacoes_excedido`.
+
+**Status de execução:** `PASS` — alertas da página (gravados em
+`f5d_ofx25000_alertas.json`): 4 no total, sendo 2 `st.info` (“Formatos
+suportados…”, “📄 Tipo detectado: OFX”), 1 do spinner e **1 erro**:
+“❌ Arquivo 'extrato_25000.ofx' tem 25000 transações, acima do limite de
+20000 transações por importação.”. Os textos proibidos foram procurados no
+corpo inteiro da página + todos os alertas: **0 ocorrências**. O log
+estruturado registrou
+`{"evento":"carga_arquivo","formato":"ofx","motivo":"limite_transacoes_excedido",
+"sucesso":false,"tamanho_bytes":2677918}` — ou seja, a allowlist aceitou o
+motivo (antes levantava `ValueError`) e nenhuma segunda mensagem foi gerada.
+Mesmo resultado nos 4 testes de limite (OFX + 3 CSV) e na AppTest da suíte.
+
+#### CT-F5D-06 — Invariantes B × C preservados
+
+**Objetivo:** Confirmar fora da interface, na tela e no PDF que os números de
+referência continuam idênticos aos das fases anteriores.
+
+**Pré-condição:** `Exemplos/B_1234490.ofx` e `Exemplos/C_1234490.ofx`;
+script independente que roda matching e ponte fora da interface.
+
+**Passos:**
+
+1. `python3 check_invariantes.py <repo>` e comparar com os números da issue.
+2. Conferir as métricas exibidas após a análise no E2E.
+3. `pdftotext -layout` no PDF baixado e procurar cobertura, diferenças,
+   resíduo e subtotais.
+
+**Resultado esperado:** 18 × 18, 14 matches (11 exatos + 3 heurísticos),
+77,8% de cobertura, 61,1% efetiva, 4 + 4 divergências, diferença líquida
+147,55 e resíduo 0,00.
+
+**Status de execução:** `PASS` — fora da UI: `total_extrato 18`,
+`total_contabil 18`, `matches_exatos 11`, `matches_heuristicos 3`,
+`matches_total 14`, `cobertura_pct 77.8`, `cobertura_efetiva_pct 61.1`,
+`divergencias_extrato 4`, `divergencias_contabil 4`, somas `1386.22` e
+`1538.93`, `diferenca_liquida 147.55`, `ponte_residuo "R$ 0,00"`,
+`ponte_fecha true`. Na interface: `18`, `18`, delta `14 com
+correspondência`, `77.8%`, `8` divergências, `14` correspondências. No PDF:
+texto com “77,8%” (4×), “61,1%” (4×), “Diferença líquida de R$ 147,55” e
+“Resíduo … R$ 0,00”.
+
+#### CT-F5D-07 — PDF Executivo: 9 páginas e conteúdo esperado
+
+**Objetivo:** Conferir páginas, formato, fontes, conteúdo e comparação com o
+baseline da Fase 5c no PDF baixado no E2E, sem rasterizar além do
+estritamente necessário.
+
+**Pré-condição:** PDF baixado no E2E; `relatorio_executivo_f5c.pdf` da Fase
+5c como baseline; `pdfinfo`, `pdffonts` e `pdftotext`.
+
+**Passos:**
+
+1. `pdfinfo` e `pdffonts` no PDF da Fase 5d.
+2. `pdftotext -layout` nos dois PDFs e `diff` linha a linha.
+3. Varredura do texto extraído por termos sensíveis e pelos invariantes.
+
+**Resultado esperado:** 9 páginas A4, fontes Inter embutidas, texto com os
+invariantes, nenhum termo sensível e diferença limitada ao carimbo de hora.
+
+**Status de execução:** `PASS` — `pdfinfo`: **9 páginas**, A4, WeasyPrint
+70.0, **60.462 bytes**. `pdffonts`: 4 faces Inter (Semi-Bold, Regular,
+Medium, Bold) com emb/sub/uni = yes. Varredura: **0** ocorrências de
+`admin123`, `password`, `Bearer`, `eyJ`, `Traceback`, `/home/`, `/tmp/`,
+`users.db`. Comparação de texto: 20.200 bytes nos dois PDFs; `diff` com **12
+linhas**, todas nas 3 ocorrências do carimbo “Data de geração” (18:12 →
+21:49). Fora do carimbo, o texto é **idêntico** ao da Fase 5c.
+**Rasterização não executada** nesta rodada por instrução explícita — a
+comparação de pixels das fases 5b/5c não foi repetida.
+
+#### CT-F5D-08 — Itens não verificados nesta rodada
+
+**Objetivo:** Deixar explícito o que **não** foi verificado, para que nada
+seja presumido como aprovado.
+
+**Pré-condição:** — (é um caso de registro).
+
+**Passos:**
+
+1. Listar tudo que exigiria outro método, outra autorização ou outro papel.
+2. Marcar cada item como `NAO EXECUTADO`, sem simular resultado.
+
+**Resultado esperado:** Lista explícita, sem nenhum `PASS` presumido.
+
+**Status de execução:** `NAO EXECUTADO` — os seguintes pontos **não foram
+verificados** nesta rodada:
+
+- **`CT-AUTH-03` (liberação após 15 min de bloqueio) e `CT-AUTH-05`
+  (expiração de sessão):** casos de tempo real, **identificados antes de
+  executar**; exigem checkpoint e confirmação explícita — seguem não
+  executados (rodada R2).
+- **`pip-audit -r requirements.txt --no-deps`:** não repetido aqui; etapa de
+  re-verificação independente do arquiteto (A1). O registro de pip-audit
+  limpo com `pypdf==6.19.0` é da rodada D1.
+- **Instalação limpa + `import app` em Python 3.12 e 3.13:** não repetidas;
+  registro da rodada D1. Nesta execução só Python 3.10.12.
+- **Reprovação pré-correção dos testes novos:** não se executou a suíte
+  contra o código anterior para confirmar que os 7 testes novos falhavam
+  antes; só se confirmou que passam depois (registro das rodadas D1/D2).
+- **Limites CSV no navegador:** a mensagem única dos limites de linhas,
+  colunas e tamanho de campo foi confirmada por pytest (nível de
+  `processar_arquivo`); a terceira mensagem (nível de página) tem cobertura
+  por AppTest **só no cenário OFX**. Nenhum CSV acima de limite subiu ao
+  navegador nesta rodada.
+- **`PyPDF2` desinstalado do ambiente:** o pacote continua instalado no
+  ambiente global do revisor (resíduo do ambiente, fora do
+  `requirements.txt`); por isso a migração foi comprovada pelo bloqueio de
+  import e não pela ausência do pacote. Instalação limpa é da D1.
+- **Re-verificação independente de segurança e leitura de PDF
+  válido/malformado/acima do limite com `pypdf`:** etapa do arquiteto (A1).
+- **Relatório legado `Completo` (PyFPDF)** e **app publicado em nuvem:**
+  fora do escopo (apenas ambiente local).
+- **Publicação (push/PR):** o squad não tem credencial Git; os commits ficam
+  somente nos worktrees locais.
+- **Tokens desta rodada:** o ambiente não expõe a métrica de consumo deste
+  agente; nenhum número é declarado.
+
+### Achados e divergências da R1 (nenhuma correção aplicada)
+
+1. **Nenhum teste falhou e nenhuma verificação reprovou** — nada foi devolvido
+   às rodadas D1 e D2 por motivo de falha; os 3 testes novos do E2E passaram
+   de primeira.
+2. **`stAlert` sem `data-alert-type` no DOM (Streamlit 1.64):** a contagem de
+   mensagens de erro do cenário do OFX de 25.000 teve de usar regra de texto
+   (`❌` e termos de erro) em vez do atributo de tipo. Registrado para que a
+   evidência não pareça mais forte do que foi; o número de mensagens é o
+   mesmo (1).
+3. **`PyPDF2` ainda instalado no ambiente** (3.0.1), embora fora do
+   `requirements.txt` — resíduo do ambiente do revisor, sem efeito sobre o
+   repositório; motivo pelo qual a confirmação da migração usou bloqueio de
+   import.
+4. **CSV acima do limite sem passagem pelo navegador:** coberto por pytest e
+   AppTest parcial; se o squad quiser o mesmo “uma única mensagem” provado na
+   UI real para os 3 limites de CSV, isso é um item novo de E2E.
+5. **`pip-audit` e Python 3.12/3.13 não repetidos** — seguem com D1/A1;
+   nenhum número desta rodada deve ser lido como re-verificação dessas duas
+   checagens.

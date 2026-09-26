@@ -18,8 +18,9 @@ import io
 import sqlite3
 from unittest.mock import patch
 
+import fpdf
 import pytest
-import PyPDF2
+import pypdf
 import streamlit as st
 
 
@@ -80,12 +81,24 @@ class ArquivoFalso(io.BytesIO):
 
 
 def _pdf_com_n_paginas(n: int) -> bytes:
-    writer = PyPDF2.PdfWriter()
+    writer = pypdf.PdfWriter()
     for _ in range(n):
         writer.add_blank_page(width=200, height=200)
     buf = io.BytesIO()
     writer.write(buf)
     return buf.getvalue()
+
+
+def _pdf_com_texto(linhas: list) -> bytes:
+    """Gera um PDF de verdade (via fpdf) com texto extraível, para
+    exercitar pdf_reader.extract_text() com dados reais de transação
+    (data + valor), e não só páginas em branco."""
+    pdf = fpdf.FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    for linha in linhas:
+        pdf.cell(0, 10, txt=linha, ln=1)
+    return pdf.output(dest="S").encode("latin-1")
 
 
 # --- PDF ---
@@ -116,6 +129,47 @@ def test_pdf_dentro_do_limite_de_paginas_nao_e_rejeitado_por_limite(pagina_impor
     # que NENHUMA chamada a st.error mencione o limite de páginas.
     for chamada in mock_error.call_args_list:
         assert "limite" not in chamada[0][0].lower()
+
+
+def test_pdf_valido_com_texto_extrai_transacoes(pagina_importacao):
+    """Migração PyPDF2 -> pypdf (item 1, fase 5d): confirma que
+    pdf_reader.pages / extract_text() de um PDF real (gerado com fpdf,
+    não só páginas em branco) continua produzindo as mesmas transações
+    de antes com a nova lib."""
+    pg = pagina_importacao
+    pg.MAX_PDF_PAGINAS = 10
+    conteudo = _pdf_com_texto([
+        "15/06/2025 R$ 1.234,56 Pagamento fornecedor sintetico",
+        "20/06/2025 R$ 500,00 Recebimento cliente sintetico",
+    ])
+    arquivo = ArquivoFalso(conteudo, "extrato.pdf")
+
+    with patch.object(pg.st, "error") as mock_error:
+        resultado = pg.processar_pdf(arquivo)
+
+    mock_error.assert_not_called()
+    assert resultado is not None
+    assert len(resultado) == 2
+    assert set(resultado["tipo"]) == {"PDF"}
+
+
+def test_pdf_malformado_nao_gera_excecao_nao_tratada(pagina_importacao):
+    """Migração PyPDF2 -> pypdf (item 1, fase 5d): pypdf usa uma
+    hierarquia de exceções diferente da PyPDF2 (ex.: PdfStreamError em
+    vez de PdfReadError) para conteúdo corrompido. processar_pdf captura
+    Exception de forma ampla; este teste comprova que esse contrato
+    continua valendo com a lib nova: nenhuma exceção escapa, o app
+    mostra UM erro amigável e retorna None em vez de quebrar a página."""
+    pg = pagina_importacao
+    pg.MAX_PDF_PAGINAS = 10
+    arquivo = ArquivoFalso(b"isto nao e um PDF valido - bytes arbitrarios sinteticos", "corrompido.pdf")
+
+    with patch.object(pg.st, "error") as mock_error:
+        resultado = pg.processar_pdf(arquivo)
+
+    assert resultado is None
+    mock_error.assert_called_once()
+    assert "erro ao processar pdf" in mock_error.call_args[0][0].lower()
 
 
 # --- CNAB ---
