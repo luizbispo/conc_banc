@@ -306,14 +306,13 @@ def main():
         st.info("- **Tolerância de data:** 2 dias (fixo)")
         st.info("- **Similaridade mínima:** 70% (automática)")
 
-    with st.sidebar.expander("📋 Regras de Correspondência"):
-        considerar_1n = st.checkbox("Identificar parcelamentos (1:N)", True)
-        considerar_n1 = st.checkbox("Identificar consolidações (N:1)", True)
-        match_exato_prioritario = st.checkbox("Priorizar matches exatos", True)
-
+    # "Regras de Correspondência" (parcelamentos 1:N, consolidações N:1,
+    # priorizar matches exatos) e "Analisar apenas mês corrente" foram
+    # removidos daqui: eram caixinhas que pareciam configuráveis mas não
+    # eram lidas em nenhum lugar do código — marcar/desmarcar não mudava
+    # o resultado da análise. Achado da revisão pós-fase 7.
     with st.sidebar.expander("🎯 Filtros de Análise"):
         valor_minimo = st.number_input("Valor mínimo (R$)", 0.0, 1000.0, 1.0, 1.0)
-        analisar_apenas_mes_corrente = st.checkbox("Analisar apenas mês corrente", False)
 
     # Botão para executar análise 
     st.markdown("---")
@@ -766,18 +765,18 @@ def main():
                         with col_controls3:
                             show_distribution = st.checkbox("Distribuição de Valores", value=True, key="distribution")
                         
-                        # ADICIONAR: Verificação de dados antes de criar visualizações
+                        # Verificação de dados antes de criar visualizações
                         extrato_filtrado = st.session_state.get('extrato_filtrado')
                         contabil_filtrado = st.session_state.get('contabil_filtrado')
-                        
-                        # ADICIONAR DEBUG
-                        with st.sidebar.expander("🔍 Debug Similaridades", expanded=False):
-                            debug_matching_similaridades(
-                                st.session_state.extrato_filtrado,
-                                st.session_state.contabil_filtrado, 
-                                st.session_state.resultados_analise
-                            )
-    
+
+                        # A chamada de debug_matching_similaridades() que existia aqui foi
+                        # removida: a função escrevia direto em st.sidebar (em vez do
+                        # container que a envolvia), então o conteúdo — com dados reais de
+                        # transações — "vazava" para a barra lateral de verdade e ficava
+                        # sempre visível, apesar dos dois níveis de expander fechado ao
+                        # redor. Achado da revisão pós-fase 7; a mesma informação (matches
+                        # por similaridade) já aparece corretamente na aba "Similaridade".
+
                         if extrato_filtrado is not None and len(extrato_filtrado) > 0:
                             
                             # Visão Geral
@@ -915,40 +914,6 @@ def main():
                 st.button("📄 Gerar Relatório", disabled=True, width='stretch')
                 st.caption("Execute a análise primeiro")
 
-
-def debug_matching_similaridades(extrato_df, contabil_df, resultados_analise):
-    """Debug detalhado do matching por similaridade"""
-    
-    st.sidebar.header("🔍 Debug - Similaridades")
-    
-    # Encontrar transações do mesmo dia com valores próximos
-    st.sidebar.write("**Transações do mesmo dia:**")
-    
-    for data_extrato in extrato_df['data'].unique():
-        transacoes_dia_extrato = extrato_df[extrato_df['data'] == data_extrato]
-        transacoes_dia_contabil = contabil_df[contabil_df['data'] == data_extrato]
-        
-        for _, extrato_row in transacoes_dia_extrato.iterrows():
-            for _, contabil_row in transacoes_dia_contabil.iterrows():
-                valor_extrato = abs(extrato_row.get('valor_original', extrato_row.get('valor', 0)))
-                valor_contabil = abs(contabil_row.get('valor_original', contabil_row.get('valor', 0)))
-                
-                diff_valor = abs(valor_extrato - valor_contabil)
-                diff_percent = (diff_valor / valor_extrato * 100) if valor_extrato > 0 else 100
-                
-                # Se diferença for pequena (até 30%) e mesma data
-                if diff_percent <= 30 and diff_valor <= 10:
-                    similaridade = SequenceMatcher(
-                        None, 
-                        extrato_row.get('descricao', '').lower(), 
-                        contabil_row.get('descricao', '').lower()
-                    ).ratio() * 100
-                    
-                    st.sidebar.write(f"**Data:** {data_extrato.strftime('%d/%m')}")
-                    st.sidebar.write(f"**Extrato:** R$ {valor_extrato:.2f} - {extrato_row.get('descricao', '')[:30]}")
-                    st.sidebar.write(f"**Contábil:** R$ {valor_contabil:.2f} - {contabil_row.get('descricao', '')[:30]}")
-                    st.sidebar.write(f"**Diff:** R$ {diff_valor:.2f} ({diff_percent:.1f}%) | **Similaridade:** {similaridade:.1f}%")
-                    st.sidebar.write("---")
 
 # [AS FUNÇÕES AUXILIARES PERMANECEM AS MESMAS...]
 def gerar_tabelas_divergencias_melhoradas(resultados_analise, extrato_df, contabil_df):
