@@ -18,6 +18,7 @@
 | 5c | 8 | 7 | 0 | 1 | Gate de verificação após as 5 rodadas da Fase 5c (pytest 375, E2E 18/18, invariantes B × C, PDF Executivo de 9 páginas rasterizado); o `NÃO EXECUTADO` é a lista de itens fora do escopo (CT-F5C-08), incluindo os casos de tempo real `CT-AUTH-03`/`CT-AUTH-05` |
 | 5d | 8 | 7 | 0 | 1 | Migração PyPDF2 → pypdf e mensagem única de limite (verificação integrada R1; pytest 393, E2E 21/21, PDF Executivo de 9 páginas); o `NÃO EXECUTADO` é a lista de itens fora do escopo (CT-F5D-08) |
 | 6 | 10 | 9 | 0 | 1 | Remoção da meta e do período manual, tema v3 e Home v3 (verificação integrada; pytest 425, E2E 25/25, invariantes B × C, PDF Executivo de 9 páginas sem “meta”, comparação das 5 telas com os mockups); o `NÃO EXECUTADO` é a lista de itens fora do escopo, incluindo os casos de tempo real `CT-AUTH-03`/`CT-AUTH-05` (CT-F6-10) |
+| 7 | 11 | 8 | 2 | 1 | Telas de importação, análise e relatório no visual v3 conciso (verificação integrada; pytest 446, E2E 41/43, invariantes B × C, PDF Executivo de 9 páginas sem “meta”, 5 telas em página inteira comparadas aos mockups). Os 2 `FAIL` são o export por aba incompleto (CT-F7-05) e os achados visuais de contraste/assimetria (CT-F7-10); o `NÃO EXECUTADO` é a lista de itens fora do escopo (CT-F7-11), incluindo os casos de tempo real `CT-AUTH-03`/`CT-AUTH-05` |
 
 *Contagens feitas automaticamente sobre as linhas “Status de execução” de cada caso.*
 
@@ -4059,3 +4060,532 @@ verificados** nesta rodada:
    isso é trabalho novo de front-end, não um bug desta fase.
 5. **Evidências fora do repositório:** telas, JSONs, PDF do E2E e log ficam
    em `e2e_out/f6/` (não versionados), como nas fases anteriores.
+
+---
+
+## Fase 7 — Telas de importação, análise e relatório no visual v3 conciso (verificação integrada)
+
+### Escopo, evidência e dependências
+
+Esta seção registra a **verificação por execução da Fase 7** da issue
+XCRE-55, executada pelo revisor rápido sobre os 4 commits do desenvolvedor
+principal (Claude pago): `661bffd` (item 1), `c76eb0a` (item 2),
+`715e8aa` (item 3) e `4bb40d5` (item 4), todos sobre `2f15199` (merge do
+PR #13 — Fase 6). O checkout do revisor foi apenas avançado em
+fast-forward até `4bb40d5`, de forma que os 4 commits são **os mesmos
+hashes** produzidos nas rodadas — sem rebase e sem reescrita de histórico.
+**Nenhum arquivo de produção foi alterado nesta verificação**: a única
+edição é este arquivo (`docs/casos-de-teste.md`), mais o PDF regenerado a
+partir dele.
+
+**Commits e arquivos revisados (`git diff --stat 2f15199..4bb40d5` → 10
+arquivos, +1719/−1415):**
+
+| Commit | Item | Arquivos | Diff |
+|---|---|---|---|
+| `661bffd` | 1 — tela de importação concisa | `pages/importacao_dados.py`, `tests/test_importacao_opcoes_avancadas.py` (novo) | 2 arquivos, +617/−574 |
+| `c76eb0a` | 2 — tela de análise concisa | `pages/analise_dados.py`, `tests/test_analise_visao_v3.py` (novo) | 2 arquivos, +545/−297 |
+| `715e8aa` | 3 — tela de relatório concisa | `pages/gerar_relatorio.py`, `tests/test_relatorio_visao_v3.py` (novo), `tests/test_home_v3.py` (1 expectativa de título) | 3 arquivos, +316/−493 |
+| `4bb40d5` | 4 — login e polimento | `app.py`, `assets/custom.css` (+9 linhas), `tests/test_login_visao_v3.py` (novo) | 3 arquivos, +241/−51 |
+
+A única edição fora do item declarado é a de `tests/test_home_v3.py` no
+commit do item 3: a expectativa do cartão “Relatório Final” mudou de
+`"Relatório de Análise"` para `"Relatório Final"` — mudança de título
+pedida pela própria issue, não regressão.
+
+**Ambiente desta execução (real, local):**
+
+- Python 3.10.12; pytest 9.1.1; Streamlit 1.64.0; Playwright 1.62 (Chromium
+  headless); WeasyPrint 70.0; poppler 22.02.0 (`pdfinfo`/`pdftotext`); Pillow
+  12.3.0 para recortes e montagens.
+- Suíte: `python3 -m pytest tests/ -q` no checkout em `4bb40d5`.
+- E2E: `python3 e2e_fase7.py` → `streamlit run app.py` local (porta **8597**),
+  banco de usuários, audit e log estruturado apontando para
+  `e2e_out/f7/estado/` (zerado no início de cada execução), login sintético
+  `admin`/`admin123`. Viewport **1440×2200** com captura de página inteira
+  (o documento do app chega a 2200 px; quando existe um contêiner rolável
+  próprio — a tabela da aba de correspondências — o script costura os
+  pedaços). O roteiro foi executado **5× durante a rodada**; o resultado
+  reportado aqui é o da **5ª execução** (`e2e_run5.txt`), com 43 verificações.
+- Somente dados sintéticos: `Exemplos/B_1234490.ofx` e
+  `Exemplos/C_1234490.ofx`, além de um OFX sintético de 25.000 transações
+  gerado pelo próprio script. **Nenhum dado real foi usado.**
+- Mockups das 5 telas baixados dos anexos da própria issue
+  (`mockup-login/home/importacao/analise/relatorio.png`, 1440×900).
+- Comandos do gate: `git log/show/diff --stat` dos 4 commits;
+  `python3 -m pytest tests/ -q` e `--collect-only` (global e arquivo a
+  arquivo); `python3 e2e_fase7.py`; `pdfinfo`/`pdftotext -layout` no PDF
+  Executivo baixado pela interface; leitura visual das 5 telas, das 5
+  montagens e de recortes ampliados; cálculo de razão de contraste com
+  composição alfa sobre o fundo real; `python3
+  scripts/gerar_pdf_casos_de_teste.py` após editar este arquivo.
+
+**Casos que dependem de espera de tempo real (identificados ANTES de
+executar):** `CT-AUTH-03` (liberação após 15 min de bloqueio) e
+`CT-AUTH-05` (expiração de sessão). Ambos foram **identificados e
+excluídos** — nenhum caso da Fase 7 (`CT-F7-01..11`) depende de tempo
+real; as esperas do script E2E são só sincronização de interface. A issue
+mantém a decisão do usuário de não pedir confirmação e de deixá-los
+`NAO EXECUTADO` (CT-F7-11).
+
+**Evidência desta rodada:**
+
+| Verificação | Resultado observado |
+|---|---|
+| Suíte completa | `pytest tests/ -q` → **446 passed, 1 skipped, 48 warnings** (80,44 s); `--collect-only` → **447 testes** |
+| Linha de base da Fase 6 | issue declara `pytest 425 passando, 1 ignorado` → **+21 testes** |
+| Origem dos +21 | 4 arquivos novos da Fase 7: `test_analise_visao_v3` (8), `test_relatorio_visao_v3` (6), `test_login_visao_v3` (4), `test_importacao_opcoes_avancadas` (3) = **21** |
+| Único ignorado | `tests/test_pluralizacao.py:94` — mesmo da linha de base; nenhum teste da Fase 7 ganhou `skip` |
+| E2E real (Streamlit + navegador) | **43 verificações: 41 `PASS`, 2 `FAIL`** (`CT-F7-VIS-05` e `CT-F7-VIS-11`, ambos de contraste — ver CT-F7-10); porta 8597, banco/log isolados, banco zerado |
+| Login e navegação | abas `Login`/`Registrar`; login real leva à Home; 3 botões de etapa na Home; **0** botões duplicados no corpo das telas |
+| Importação (item 1) | visão padrão: `st.title("📥 Importação de Dados")` + **2 uploaders** (`Extrato Bancário` e `Lançamentos Contábeis`) + estado do arquivo (nome, `4.5KB`, `Tipo detectado: OFX`) + **1** mensagem de erro por vez + **1** botão primário `Ir para Análise de Dados`; sidebar com **só** a navegação (`st.sidebar` só tem `### Navegação Principal` + 4 `st.page_link`); expander `Opções avançadas` **fechado** e com os recursos movidos (conteúdo não visível enquanto fechado) |
+| Cenário de limite | OFX sintético com **25.000** transações (5.150.574 bytes) → **exatamente 1** mensagem `❌ Arquivo 'extrato_25000.ofx' tem 25000 transações, acima do limite de 20000…`, `mensagens_duplicadas=[]` |
+| Análise (item 2) | **4 indicadores** na visão padrão: Cobertura de Análise **77,8%**, Correspondências **14/18**, Itens em Aberto **8**, Diferença Líquida **R$ 147.55**; **3 abas** `🔍 Correspondências` / `⚠️ Divergências` / `🔁 Similaridade`; **8/8 expanders fechados** (inclui `Guia de Análise`, `Detalhes` ×2 e `🔍 Ver Detalhes Completos…`); sem alertas de sucesso empilhados no topo (`sobraram=[]`); exportações: **2** botões na aba Divergências e **1** na Similaridade, **0** na Correspondências |
+| Aba ativa (item 2) | CSS corrigido em `pages/analise_dados.py:459`: `[aria-selected="true"]` → `color: #002D72; border-bottom: 4px solid #002D72` (antes `background-color: #0078D4; border-bottom: 4px solid #FF4B4B`); confirmado por leitura do código e pela régua de pixels navy (`#002D72`) da captura, que mostra 6 px de sublinhado navy sob a aba ativa e nenhum pixel vermelho |
+| Relatório (item 3) | formulário **no corpo** com os 4 campos (`Nome da Empresa`, `Classificação do documento`, `Nome do Contador (Analista)`, `Observações e Contexto para o Relatório:`); período como texto `15/06/2025 a 16/07/2025, calculado dos arquivos`; **0** ocorrências de “meta”, **nenhum** campo de período editável, **0** `iframe`; após gerar, **1** link `📥 Baixar PDF` + mensagem de sucesso |
+| PDF Executivo | **60.292 bytes**, **9 páginas** (`pdfinfo`), período `15/06/2025 a 16/07/2025` (formato `dd/mm/aaaa a dd/mm/aaaa`), **0** ocorrências de “meta”, **0** credencial/caminho interno/`Traceback` |
+| Invariantes B × C | conferidos pelos 4 indicadores da tela, idênticos aos da Fase 6: 77,8% / 14 de 18 / 8 itens em aberto / R$ 147,55 — **a Fase 7 não alterou números** |
+| Login (item 4) | cartão centralizado, título `Sistema de Conciliação Bancária`, campos `Username ou Email` e `Senha`, botão `Entrar`; aba `Registrar` preservada (7 inputs no total); logout volta para `/` |
+| Polimento (item 4) | `assets/custom.css` ganhou **um único** `[data-testid="stAppViewContainer"] .block-container { padding-top: 2.5rem; }` usado pelas 4 telas; nenhum comportamento novo |
+| Telas em página inteira | 5 capturas 1440×2200 (`f7_tela1_login.png` … `f7_tela5_relatorio.png`) + `f7_tela5b_relatorio_gerado.png` + `f7_cenario_ofx25000.png` |
+| Montagens com os mockups | 5 montagens lado a lado (`cmp_1_login.png` … `cmp_5_relatorio.png`), 2900×2240, lidas na íntegra (CT-F7-09) |
+| Contraste WCAG (CT-F7-10) | login **0**, home **0**, análise **0**, relatório **0** ofensores; importação **4** ofensores a **4,4956:1** (mín. 4,5) e relatório gerado **2** ofensores, incluindo `📥 Baixar PDF` branco sobre `#4CAF50` a **2,7796:1** |
+| Sobreposição de controles | login/home/importação/relatório **nenhuma**; análise: 3 pares **só no DOM** — o hit-test no centro da interseção devolve `P`/`stVerticalBlock` (nenhum dos dois controles) e o recorte ampliado da captura não mostra nada sobreposto |
+
+**Limitações declaradas desta rodada:** (a) o squad não tem credencial Git —
+sem push e sem PR, os commits (incluindo este) ficam só nos worktrees locais;
+(b) `CT-AUTH-03` (15 min) e `CT-AUTH-05` (24 h) são casos de tempo real,
+**identificados e não executados** (CT-F7-11); (c) a comparação com os
+mockups é **qualitativa** (leitura visual de pares lado a lado), não um
+teste automatizado de pixels nem de tolerância numérica — não existe
+baseline de UI no repositório; (d) as verificações de contraste e de
+sobreposição são feitas no DOM (estilos calculados + composição alfa +
+hit-test) e valem para o que está visível no viewport 1440×2200 da captura,
+não para toda a cascata de estilos possíveis; (e) a comparação pixel a
+pixel de recortes e a leitura das montagens são inspeção visual humana, sem
+OCR; (f) as evidências de execução (telas, JSONs, OFX, log do E2E) ficam
+fora do repositório e não são entregáveis versionados; (g) tokens: o
+ambiente não expõe a métrica de consumo deste agente, então nenhum número
+é declarado; (h) revisão limitada a rodar e conferir — arquitetura, design
+e segurança mais profunda ficam com o arquiteto, como de costume do cargo.
+
+#### CT-F7-01 — Revisão dos 4 commits da Fase 7
+
+**Objetivo:** Ler os diffs completos dos 4 commits e conferir que cada um
+entrega somente o item da sua rodada, sem mistura de escopo.
+
+**Pré-condição:** checkout do revisor em `4bb40d5` com `git status` limpo.
+
+**Passos:**
+
+1. `git log --oneline -5` e `git diff --stat 2f15199..4bb40d5`.
+2. `git show 661bffd`, `git show c76eb0a`, `git show 715e8aa` e
+   `git show 4bb40d5`, lendo os arquivos de produção alterados de cada um.
+3. Conferir se algum commit alterou regra de negócio (matching, cálculo do
+   B × C, geração do PDF) em vez de visual.
+
+**Resultado esperado:** 4 commits, um por item; sem alteração de lógica de
+negócio; sem commit com escopo trocado.
+
+**Status de execução:** `PASS` — 4 commits sobre `2f15199`, 10 arquivos,
++1719/−1415. Item 1 só em `importacao_dados.py`; item 2 só em
+`analise_dados.py`; item 3 só em `gerar_relatorio.py` (+ a expectativa de
+título em `test_home_v3.py`, pedida pela issue); item 4 só em `app.py` e
+`assets/custom.css`. Os 4 arquivos de teste novos são escritos antes da
+mudança, conforme a regra do squad. Leitura dos diffs não encontrou
+alteração em `modules/report_executivo.py`, `modules/matching*.py`,
+`modules/report_generator.py` ou em qualquer constante do B × C.
+
+#### CT-F7-02 — Suíte completa de regressão após os 4 commits
+
+**Objetivo:** Rodar a suíte inteira no checkout da Fase 7 e comparar com a
+linha de base declarada na issue (425 passando, 1 ignorado).
+
+**Pré-condição:** CT-F7-01 concluído.
+
+**Passos:**
+
+1. `python3 -m pytest tests/ -q`.
+2. `python3 -m pytest tests/ -q --collect-only` e contagem por arquivo dos
+   4 arquivos novos.
+3. Identificar o teste ignorado e conferir que não é da Fase 7.
+
+**Resultado esperado:** nenhum teste falhando; contagem ≥ 426; o skip sendo
+o mesmo da linha de base.
+
+**Status de execução:** `PASS` — **446 passed, 1 skipped, 48 warnings in
+80,44 s**; **447 testes** coletados contra 426 da Fase 6 (**+21**). Os 21
+testes novos estão todos nos 4 arquivos da Fase 7 (`8 + 6 + 4 + 3`). O
+único ignorado é `tests/test_pluralizacao.py:94` (“gerar_relatorio_executivo
+exige DataFrames não vazios”), o mesmo da linha de base.
+
+#### CT-F7-03 — E2E real com Streamlit local e navegador
+
+**Objetivo:** Executar o fluxo inteiro na interface real (login, home,
+importar B e C, analisar, ver abas e exportar CSV, gerar e baixar o
+Executivo, cenário de OFX com 25.000 transações, logout) e registrar
+PASS/FAIL caso a caso.
+
+**Pré-condição:** CT-F7-02 concluído; `e2e_fase7.py` no diretório de
+trabalho do revisor (fora do repositório).
+
+**Passos:**
+
+1. `python3 e2e_fase7.py` → sobe `streamlit run app.py` na porta 8597 com
+   banco/audit/log isolados em `e2e_out/f7/estado/`.
+2. Percorrer as 5 telas executando as verificações `CT-F7-E2E-*` e
+   `CT-F7-VIS-*`.
+3. Encerrar o servidor e ler o resumo final.
+
+**Resultado esperado:** 0 `FAIL`; qualquer `FAIL` é reportado, não
+contornado.
+
+**Status de execução:** `PASS` — **43 verificações: 41 `PASS`, 2 `FAIL`**,
+sendo os 2 `FAIL` de contraste registrados em CT-F7-10 e nenhum de fluxo.
+Cobertura do roteiro: health ok; login com abas e campos; navegação dos 3
+cartões; importação com os 2 uploaders, estado do arquivo e botão
+primário; execução da análise; os 4 indicadores com os valores do B × C; as
+3 abas; os 3 download de CSV (1264, 1240 e 677 bytes, por evento de
+download do navegador); o formulário e o texto do período no relatório; a
+geração e o download do PDF (60.292 bytes, 9 páginas); o OFX de 25.000 com
+1 única mensagem de erro; e o logout.
+
+#### CT-F7-04 — Item 1: visão padrão da importação e expander “Opções avançadas”
+
+**Objetivo:** Conferir que a visão padrão da importação mostra só o
+essencial, que um único erro aparece por vez, que a sidebar fica só com a
+navegação e que nenhum recurso secundário foi apagado.
+
+**Pré-condição:** CT-F7-03 concluído.
+
+**Passos:**
+
+1. Abrir a tela sem arquivos e depois com B e C carregados.
+2. Conferir título, os 2 uploaders lado a lado, o estado do arquivo
+   (nome, tamanho, tipo) e o único botão primário.
+3. Rodar o cenário OFX sintético de 25.000 transações e contar as mensagens
+   de erro.
+4. Abrir o expander `Opções avançadas` e conferir os recursos movidos
+   (Link de Pastas na Nuvem, Links Diretos para Arquivos, Novo Sistema de
+   Validação por nome de arquivo, Modo Desenvolvedor, Guia Completo,
+   Ajuda).
+5. Conferir o código da sidebar.
+
+**Resultado esperado:** tudo listado presente e visível por padrão apenas o
+essencial; expander fechado por padrão contendo todos os recursos; 1 erro
+por vez; sidebar só com navegação.
+
+**Status de execução:** `PASS` — título `📥 Importação de Dados`; uploaders
+`Extrato Bancário` e `Lançamentos Contábeis` com um por coluna; estado
+`B_1234490.ofx · 4.5KB · Tipo detectado: OFX` e o análogo contábil;
+**1** botão `Ir para Análise de Dados` após o processamento (antes dele, o
+botão não existe); OFX de 25.000 → **1** mensagem de limite e
+`mensagens_duplicadas=[]`; expander `Opções avançadas` **fechado** e seu
+conteúdo não visível enquanto fechado (verificado no DOM, com o teste
+AppTest correspondente passando); `with st.sidebar:` de
+`pages/importacao_dados.py:358` contém apenas `### Navegação Principal` e 4
+`st.page_link`. A assimetria visual entre os dois cartões está registrada
+em CT-F7-10, não aqui.
+
+#### CT-F7-05 — Item 2: análise com 4 indicadores, 3 abas e exportação por aba
+
+**Objetivo:** Conferir a visão padrão da análise: título, botão primário
+antes de rodar, os 4 indicadores, as 3 abas, as tabelas limpas, **um botão
+“Exportar CSV” por aba** e o botão primário para o relatório; e o CSS da aba
+ativa.
+
+**Pré-condição:** CT-F7-03 concluído.
+
+**Passos:**
+
+1. Abrir a análise antes de executar e conferir o botão primário e a
+   ausência de indicadores.
+2. Executar a análise e conferir os 4 indicadores e as 3 abas.
+3. Contar os `st.download_button` de cada aba.
+4. Conferir o CSS da aba ativa e a ausência de alertas empilhados no topo.
+
+**Resultado esperado:** 4 indicadores com os valores do B × C; 3 abas; 1
+exportação por aba; aba ativa com texto e sublinhado navy; nenhum alerta
+empilhado.
+
+**Status de execução:** `FAIL` — os 4 indicadores estão corretos
+(**77,8% / 14/18 / 8 / R$ 147.55**), as 3 abas existem, os expanders estão
+fechados, não há alertas empilhados (`sobraram=[]`) e o CSS da aba ativa
+está navy (`pages/analise_dados.py:459`, sem azul de fundo e sem
+sublinhado vermelho). **O requisito “botão Exportar CSV por aba” não está
+completo:** a aba `Correspondências` (a lista principal) **não tem nenhum
+botão de exportação** — os existentes são 2 em `Divergências`
+(Bancárias/Contábeis) e 1 em `Similaridade`. Conferido em
+`git show 2f15199:pages/analise_dados.py`: os mesmos 3 botões já existiam
+antes da Fase 7 (criados em `c08f294`), então a Fase 7 **manteve** os
+exportadores da Fase 5b, como pedido, mas o “por aba” pedido pela issue
+continua sem cobrir a aba Correspondências. O teste novo
+`tests/test_analise_visao_v3.py:186` só faz
+`assert len(aba_divergencias.download_button) == 2`, ou seja, também não
+cobre a aba Correspondências. Como acrescentar exportação é mudança de
+função, **não foi alterado aqui** — decisão do desenvolvedor/arquiteto.
+
+#### CT-F7-06 — Item 3: relatório com formulário no corpo e período só texto
+
+**Objetivo:** Conferir o título, o formulário no corpo com os 4 campos, o
+período como texto somente-leitura, o botão primário, o link de download e a
+ausência de meta/período editável/iframe/gráficos duplicados.
+
+**Pré-condição:** CT-F7-03 concluído.
+
+**Passos:**
+
+1. Abrir a tela e conferir título e os 4 campos do formulário no corpo.
+2. Conferir o texto do período e a ausência de campo de período e de “meta”.
+3. Conferir a ausência de `iframe` e de pré-visualização.
+4. Gerar o relatório e conferir o link `Baixar PDF` e a mensagem de sucesso.
+
+**Resultado esperado:** os 4 campos certos; período como texto; sem meta,
+sem período editável, sem iframe; link de download só após gerar.
+
+**Status de execução:** `PASS` — título `Relatório Final`; labels
+exatamente `['Nome da Empresa', 'Classificação do documento', 'Nome do
+Contador (Analista)', 'Observações e Contexto para o Relatório:']`; período
+exibido como `15/06/2025 a 16/07/2025, calculado dos arquivos`; `meta=False`,
+`campo_periodo=False`, `iframes=0`; após gerar, **1** link de download e
+mensagem de sucesso. A questão do contraste do próprio link está em
+CT-F7-10.
+
+#### CT-F7-07 — Item 4: login conforme mockup e polimento das 4 telas
+
+**Objetivo:** Conferir o cartão de login centralizado com título, campos e
+botão `Entrar`, a aba `Registrar` preservada, a consistência de espaçamentos
+e títulos e a ausência de comportamento novo.
+
+**Pré-condição:** CT-F7-01 e CT-F7-03 concluídos.
+
+**Passos:**
+
+1. Abrir `/` sem sessão e conferir título, abas, campos e botão.
+2. Logar com `admin`/`admin123`, conferir a Home, sair e voltar ao login.
+3. Conferir o CSS de espaçamento acrescentado e que nenhum teste de
+   login/sair/cadastro regrediu.
+
+**Resultado esperado:** login como no mockup; login/sair/cadastro
+funcionando; um único ajuste de espaçamento, aplicado às 4 telas.
+
+**Status de execução:** `PASS` — abas `Login`/`Registrar`; labels `Username
+ou Email`, `Senha`, `Nome Completo`, `Username`, `Email`, `Senha`,
+`Confirmar Senha` (7 inputs); login real redireciona para `/`; logout volta
+para `/`; `assets/custom.css` ganhou apenas
+`[data-testid="stAppViewContainer"] .block-container { padding-top: 2.5rem; }`
+(+9 linhas no total no arquivo); os testes de navegação/login de
+`test_home_v3.py` e os 4 novos de `test_login_visao_v3.py` passam. A
+assimetria entre os dois cartões da importação é o único problema de
+consistência encontrado e está registrada em CT-F7-10.
+
+#### CT-F7-08 — Invariantes B × C e PDF Executivo preservados
+
+**Objetivo:** Confirmar que a Fase 7, que mexeu só em visual, não mudou
+nenhum número do B × C nem a estrutura do PDF Executivo.
+
+**Pré-condição:** CT-F7-03 concluído (PDF baixado pela interface).
+
+**Passos:**
+
+1. Ler os 4 indicadores da tela de análise.
+2. `pdfinfo` e `pdftotext -layout` no PDF baixado.
+3. Conferir período, ausência de “meta” e ausência de credencial/caminho
+   interno/`Traceback`.
+
+**Resultado esperado:** mesmos números da Fase 6; 9 páginas; período
+automático; sem “meta”.
+
+**Status de execução:** `PASS` — Cobertura **77,8%**, Correspondências
+**14/18**, Itens em Aberto **8**, Diferença Líquida **R$ 147.55** (idênticos
+à linha de base da issue); PDF **60.292 bytes**, **9 páginas**, período
+`15/06/2025 a 16/07/2025` no formato `dd/mm/aaaa a dd/mm/aaaa`, **0**
+ocorrências de “meta”, **0** ocorrências de credencial, caminho interno ou
+`Traceback`.
+
+#### CT-F7-09 — Comparação das 5 telas com os mockups da issue
+
+**Objetivo:** Capturar as 5 telas em página inteira, montá-las lado a lado
+com os mockups e dizer objetivamente o que ficou diferente.
+
+**Pré-condição:** CT-F7-03 concluído.
+
+**Passos:**
+
+1. Capturar login, home, importação, análise e relatório com viewport
+   1440×2200 e captura de página inteira.
+2. Montar cada par (mockup × tela real) com Pillow.
+3. Ler as 5 montagens e listar as divergências.
+
+**Resultado esperado:** 5 pares produzidos e lidos; divergências listadas e
+classificadas.
+
+**Status de execução:** `PASS` — 5 capturas (`f7_tela1_login.png` …
+`f7_tela5_relatorio.png`, todas 1440×2200) e 5 montagens (`cmp_1_login.png`
+… `cmp_5_relatorio.png`, 2900×2240) produzidas e lidas. Divergências
+observadas:
+
+1. **Login:** o mockup traz o logo “SB” e um link “Ajuda”; a app tem apenas
+   o título `Sistema de Conciliação Bancária` e o link de ajuda foi para o
+   expander `Opções avançadas` da importação. Como a issue proíbe “nome de
+   produto inventado”, omitir o logo é **adequado**, não divergência a
+   corrigir.
+2. **Home:** o mockup tem barra superior `Empresa QA` / `Analista: Pessoa QA`
+   e descrição de texto dentro de cada cartão; a app não tem a barra, não
+   tem descrição nos cartões e mantém, abaixo de cada cartão, um botão navy
+   com o **mesmo título** do cartão (herdado da Home v3 da Fase 6, fora do
+   escopo desta issue, que só manda mexer em login/polimento). A app também
+   mostra o título `Sistema de Conciliação Bancária` na Home, que o mockup
+   não mostra.
+3. **Importação:** o mockup desenha dropzones próprias com ícone central e
+   a app usa o uploader nativo do Streamlit (aceitável: “adapte ao que o
+   Streamlit consegue”); **o app tem os dois cartões desalinhados** — o
+   título `Extrato Bancário` está dentro do cartão e o título `Lançamentos
+   Contábeis` está fora, acima dele (ver CT-F7-10).
+4. **Análise:** o mockup traz barra de período + `Exportar CSV` no topo
+   direito, rótulos em caixa alta nos indicadores e contadores no título de
+   cada aba (`Correspondências (11)`); a app tem os 4 indicadores sem caixa
+   alta, abas sem contador e os botões de exportação dentro de cada aba
+   (exceção: a aba Correspondências não tem nenhum — CT-F7-05). Nenhuma
+   dessas diferenças esconde um critério da issue.
+5. **Relatório:** o mockup mostra o campo `PERÍODO DA ANÁLISE` como input e
+   uma pré-visualização do PDF à direita; a app **não tem campo de período**
+   (só texto) e **não tem pré-visualização**, o que é exatamente o pedido da
+   issue — divergência do mockup **proposital e correta**.
+
+**Conclusão da comparação:** as divergências são sistemáticas (a app tem
+sidebar/administração/etapas que os mockups não desenham) ou propositalmente
+favoráveis ao texto da issue; **2 delas são defeitos reais** e estão em
+CT-F7-05 e CT-F7-10.
+
+#### CT-F7-10 — Caça ativa a problemas visuais
+
+**Objetivo:** Procurar ativamente texto ilegível ou de baixo contraste,
+elementos sobrepostos, botões duplicados, espaços vazios e emojis quebrados
+nas 5 telas.
+
+**Pré-condição:** CT-F7-09 concluído.
+
+**Passos:**
+
+1. Em cada tela, medir a razão de contraste de todo texto visível
+   (estilos calculados, composição alfa do fundo real, sem arredondar) e
+   comparar com o mínimo WCAG AA (4,5:1, ou 3:1 para texto grande).
+2. Testar sobreposição de controles com hit-test no centro da interseção e
+   inspeção do recorte da captura.
+3. Contar botões repetidos por tela; revisar a captura inteira procurando
+   emoji/tofu e blocos vazios.
+
+**Resultado esperado:** 0 ofensores; qualquer ofensa é `FAIL`.
+
+**Status de execução:** `FAIL` — 3 problemas reais encontrados:
+
+1. **`📥 Baixar PDF` com contraste 2,7796:1** (`CT-F7-VIS-11`): texto branco
+   sobre `#4CAF50`, mínimo exigido 4,5:1 — falha clara de legibilidade, no
+   link que é a ação principal da tela de relatório. O estilo verde/branco é
+   **pré-existente** (`56693c8`, commit inicial do repositório); a Fase 7
+   (`715e8aa`) só mudou o rótulo para `📥 Baixar PDF`. Não foi alterado aqui:
+   é decisão de estilo do desenvolvedor/arquiteto.
+2. **4 `st.success` da importação com contraste 4,4956:1** (`CT-F7-VIS-05`):
+   `rgb(21,130,55)` sobre `rgba(33,195,84,0.1)` composto em
+   `rgb(233,249,238)` → 4,4956:1 contra o mínimo 4,5:1. É o estilo padrão do
+   Streamlit e **já existiam 12 `st.success`** em `2f15199`; a Fase 7 não
+   criou o problema, apenas os expôs na visão padrão. Falha por 0,09% —
+   registrada como `FAIL` por rigor do critério, com o valor exato.
+3. **Cartões da importação desalinhados:** em
+   `pages/importacao_dados.py:780-781` o `st.subheader("🏦 Extrato
+   Bancário")` está **dentro** do `st.container(border=True)`, enquanto em
+   `:1023-1024` o `st.subheader("📊 Lançamentos Contábeis")` está **fora**
+   do container da coluna 2. O resultado, na captura, é uma diferença de
+   ~61 px entre o topo das duas bordas e um título solto acima do cartão —
+   contrário à exigência do item 4 (“consistência de espaçamentos e títulos
+   nas 4 telas”). Não corrigido aqui: correção de produção é papel do
+   desenvolvedor.
+
+Pontos verificados e **sem** problema: contraste em login, home, análise e
+relatório (0 ofensores cada); **nenhuma sobreposição visível** em nenhuma
+das 5 telas (na análise, 3 pares aparecem só no DOM, dentro de expanders
+fechados — o hit-test no centro da interseção devolve `P`/`stVerticalBlock`
+e nenhum dos controles, e o recorte ampliado da captura não mostra nada
+sobreposto); **nenhum botão duplicado** (o `add` que se repete são os 2
+uploaders, não uma duplicação); **nenhum emoji quebrado ou tofu** (a fonte
+`Segoe UI Emoji` renderiza os glifos das 5 telas); **nenhum bloco vazio**
+que esconda conteúdo — a área branca abaixo do conteúdo nas capturas é o
+espaço do viewport de 2200 px, não um buraco de layout.
+
+#### CT-F7-11 — Itens não verificados nesta rodada
+
+**Objetivo:** Listar explicitamente tudo que exigiria outro método, outra
+autorização, tempo real ou está fora do escopo — sem simular resultado.
+
+**Pré-condição:** execução dos casos CT-F7-01..10 concluída.
+
+**Passos:**
+
+1. Listar os pontos não cobertos por esta rodada.
+2. Marcar cada um como `NAO EXECUTADO`, sem presumir resultado.
+
+**Resultado esperado:** lista explícita, sem nenhum `PASS` presumido.
+
+**Status de execução:** `NAO EXECUTADO` — os seguintes pontos **não foram
+verificados** nesta rodada:
+
+- **`CT-AUTH-03` (liberação após 15 min de bloqueio) e `CT-AUTH-05`
+  (expiração de sessão):** casos de tempo real, **identificados antes de
+  executar** e excluídos; a issue mantém a decisão do usuário de não pedir
+  confirmação e de deixá-los `NAO EXECUTADO`.
+- **Comparação pixel a pixel / tolerância numérica entre mockup e app:**
+  feita apenas leitura visual das montagens (limitação (c)); não existe
+  baseline numérica de UI no repositório.
+- **`pip-audit`, instalação limpa e Python 3.12/3.13:** etapa do
+  arquiteto_planejador (a issue manda o arquiteto re-verificar pip-audit,
+  “Opções avançadas”, ausência de meta/período editável/iframe e período
+  automático); nesta execução só Python 3.10.12.
+- **Revisão de segurança/arquitetura além de rodar e conferir:** escopo do
+  arquiteto, não do revisor por execução.
+- **Publicação (push/PR):** o squad não tem credencial Git; os commits
+  ficam somente nos worktrees locais.
+- **Correção dos 3 achados visuais de CT-F7-10 e do export por aba de
+  CT-F7-05:** são mudanças de produção/estilo, escopo do desenvolvedor
+  principal — aqui foram apenas registrados.
+- **Tokens e chamadas do Claude por rodada:** métricas que só o
+  desenvolvedor registra no próprio resumo de rodada; o ambiente não expõe
+  a métrica de consumo deste agente.
+
+### Achados e divergências da rodada (nenhuma correção de produção aplicada)
+
+1. **A suíte inteira está verde e os números do B × C não mudaram:** 446
+   passed / 1 skipped (447 coletados, +21 sobre a Fase 6), e os 4
+   indicadores da tela continuam 77,8% / 14 de 18 / 8 / R$ 147,55. O E2E
+   fechou com **41 de 43** verificações aprovadas.
+2. **Os 2 `FAIL` do E2E são de contraste, não de fluxo.** O mais grave é o
+   link `📥 Baixar PDF` a **2,7796:1** (branco sobre `#4CAF50`), estilo
+   herdado do commit inicial da Fase 7 só reetiquetou; o outro são os 4
+   `st.success` da importação a **4,4956:1**, limite do estilo padrão do
+   Streamlit (falta 0,0044 para passar). Ambos exigem mudança de CSS, que
+   fica com o desenvolvedor.
+3. **O item 2 não cobra a aba Correspondências:** “botão Exportar CSV por
+   aba” está atendido só em 2 das 3 abas. Os 3 exportadores existentes são
+   exatamente os da Fase 5b e não foram removidos; o teste novo também não
+   cobre a aba faltante.
+4. **Assimetria introduzida pela Fase 7 na importação:** o título de uma
+   coluna ficou dentro do cartão e o da outra fora, desalinhando as bordas
+   em ~61 px. É o único defeito de layout **introduzido** por esta fase
+   (os demais são pré-existentes ou propositalmente diferentes do mockup).
+5. **Ajustes feitos durante a execução foram no script do E2E, não na
+   app:** checagem de “Etapa 1” sem considerar `text-transform: uppercase`,
+   checagem do botão primário antes do upload, detecção de expander fechado
+   por `aria-expanded` (inexistente no Streamlit — passou a olhar o ícone de
+   chevron e a ausência do conteúdo), contraste com composição alfa e
+   filtro de visibilidade (expanders fechados geravam falso positivo) e
+   sobreposição com hit-test no centro da interseção. Foram 5 execuções do
+   roteiro no total; o resultado reportado é o da 5ª, com as correções.
+6. **Divergências com os mockups são sistemáticas, não pontuais:** a app
+   tem sidebar/administração/etapas que os mockups não desenham, e 2
+   diferenças do mockup são **exigências da própria issue** (sem
+   pré-visualização de PDF e sem campo de período). Se o time quiser
+   convergir o visual ao mockup, isso é trabalho novo de front-end, não um
+   bug desta fase.
+7. **Evidências fora do repositório:** telas, montagens, JSONs, OFX e log do
+   E2E ficam em `e2e_out/f7/` (não versionados), como nas fases anteriores;
+   o script do E2E (`e2e_fase7.py`) também fica fora do repositório.

@@ -205,7 +205,7 @@ def test_login_continua_funcionando_para_sessao_nao_autenticada():
 @pytest.mark.parametrize("rotulo,pagina_esperada,titulo_esperado", [
     ("Importação de Dados", "pages/importacao_dados.py", "Importação de Dados"),
     ("Análise de Divergências", "pages/analise_dados.py", "Análise de Correspondências"),
-    ("Relatório Final", "pages/gerar_relatorio.py", "Relatório de Análise"),
+    ("Relatório Final", "pages/gerar_relatorio.py", "Relatório Final"),
 ])
 def test_cartao_navega_para_a_pagina_correspondente(home_autenticada, rotulo, pagina_esperada, titulo_esperado):
     at = home_autenticada

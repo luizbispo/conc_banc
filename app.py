@@ -370,57 +370,61 @@ def logout_user():
 
 # --- PÁGINA DE LOGIN ---
 def show_login_page():
-    """Exibe página de login"""
-    st.title("🔐 Sistema de Conciliação Bancária")
-    st.markdown("### Faça login para acessar o sistema")
-    
-    tab1, tab2 = st.tabs(["Login", "Registrar"])
-    
-    with tab1:
-        with st.form("login_form"):
-            username = st.text_input("Username ou Email")
-            password = st.text_input("Senha", type="password")
-            submit = st.form_submit_button("Entrar")
-            
-            if submit:
-                if not username or not password:
-                    st.error("Preencha todos os campos")
-                else:
-                    success, user_info, token = login_user(username, password)
-                    if success:
-                        st.session_state.token = token
-                        st.session_state.user = user_info
-                        st.success(f"Bem-vindo, {user_info['full_name']}!")
-                        st.rerun()
-                    else:
-                        st.error(f"Falha no login: {token}")  # 'token' aqui contém a mensagem de erro
-    
-    with tab2:
-        st.info("Registre-se para acessar o sistema")
-        with st.form("register_form"):
-            col1, col2 = st.columns(2)
-            with col1:
-                full_name = st.text_input("Nome Completo")
-                username = st.text_input("Username")
-            with col2:
-                email = st.text_input("Email")
-                password = st.text_input("Senha", type="password")
-                confirm_password = st.text_input("Confirmar Senha", type="password")
-            
-            submit = st.form_submit_button("Registrar")
-            
-            if submit:
-                if not all([full_name, username, email, password, confirm_password]):
-                    st.error("Preencha todos os campos")
-                elif password != confirm_password:
-                    st.error("Senhas não coincidem")
-                else:
-                    success, message = register_user(username, email, password, full_name)
-                    if success:
-                        st.success(message)
-                        st.info("Agora faça login com suas credenciais")
-                    else:
-                        st.error(message)
+    """Exibe página de login: cartão centralizado (mockup-login, fase 7
+    item 4), mesmos campos/abas/comportamento de sempre — só a
+    apresentação muda."""
+    _col_esq, col_centro, _col_dir = st.columns([1, 2, 1])
+    with col_centro:
+        with st.container(border=True):
+            st.title("🔐 Sistema de Conciliação Bancária")
+
+            tab1, tab2 = st.tabs(["Login", "Registrar"])
+
+            with tab1:
+                with st.form("login_form"):
+                    username = st.text_input("Username ou Email")
+                    password = st.text_input("Senha", type="password")
+                    submit = st.form_submit_button("Entrar", type="primary", width='stretch')
+
+                    if submit:
+                        if not username or not password:
+                            st.error("Preencha todos os campos")
+                        else:
+                            success, user_info, token = login_user(username, password)
+                            if success:
+                                st.session_state.token = token
+                                st.session_state.user = user_info
+                                st.success(f"Bem-vindo, {user_info['full_name']}!")
+                                st.rerun()
+                            else:
+                                st.error(f"Falha no login: {token}")  # 'token' aqui contém a mensagem de erro
+
+            with tab2:
+                st.info("Registre-se para acessar o sistema")
+                with st.form("register_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        full_name = st.text_input("Nome Completo")
+                        username = st.text_input("Username")
+                    with col2:
+                        email = st.text_input("Email")
+                        password = st.text_input("Senha", type="password")
+                        confirm_password = st.text_input("Confirmar Senha", type="password")
+
+                    submit = st.form_submit_button("Registrar")
+
+                    if submit:
+                        if not all([full_name, username, email, password, confirm_password]):
+                            st.error("Preencha todos os campos")
+                        elif password != confirm_password:
+                            st.error("Senhas não coincidem")
+                        else:
+                            success, message = register_user(username, email, password, full_name)
+                            if success:
+                                st.success(message)
+                                st.info("Agora faça login com suas credenciais")
+                            else:
+                                st.error(message)
 
 # --- VERIFICAÇÃO DE AUTENTICAÇÃO ---
 def check_authentication():

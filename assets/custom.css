@@ -18,6 +18,15 @@ html, body, [data-testid="stAppViewContainer"] {
     font-family: 'Inter', system-ui, sans-serif;
 }
 
+/* Espaçamento consistente do topo do conteúdo nas 4 telas (login,
+   home, importação, análise, relatório) — fase 7, item 4. O padrão do
+   Streamlit reserva um espaço bem maior que o necessário acima do
+   título de cada página; um valor fixo aqui, único, vale para todas
+   ao mesmo tempo (aplicar_tema() injeta este arquivo em toda página). */
+[data-testid="stAppViewContainer"] .block-container {
+    padding-top: 2.5rem;
+}
+
 /* Sidebar sóbria (Navy) */
 [data-testid="stSidebar"] {
     background-color: #0B2A5B;
